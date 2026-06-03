@@ -8,13 +8,21 @@
  * @module
  */
 
+import type * as communicators from "../communicators.js";
+import type * as sermons from "../sermons.js";
+import type * as transcription from "../transcription.js";
+
 import type {
   ApiFromModules,
   FilterApi,
   FunctionReference,
 } from "convex/server";
 
-declare const fullApi: ApiFromModules<{}>;
+declare const fullApi: ApiFromModules<{
+  communicators: typeof communicators;
+  sermons: typeof sermons;
+  transcription: typeof transcription;
+}>;
 
 /**
  * A utility for referencing Convex functions in your app's public API.

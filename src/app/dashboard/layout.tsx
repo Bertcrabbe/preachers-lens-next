@@ -31,7 +31,7 @@ export default function DashboardLayout({
         </div>
         <div className="flex items-center gap-3">
           <ThemeSwitcher />
-          <UserButton afterSignOutUrl="/" />
+          <UserButton />
         </div>
       </nav>
       <main className="p-6">{children}</main>

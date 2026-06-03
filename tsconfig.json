@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2017",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -19,7 +23,9 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": [
+        "./src/*"
+      ]
     }
   },
   "include": [
@@ -30,5 +36,19 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules",
+    "src/components/ui/resizable.tsx",
+    "src/components/ui/calendar.tsx",
+    "src/components/ui/input-otp.tsx",
+    "src/components/AudioEditor.tsx",
+    "src/components/CommunicatorLinks.tsx",
+    "src/components/ui/carousel.tsx",
+    "src/components/NavLink.tsx",
+    "src/components/Sparkline.tsx",
+    "src/components/AudioRecorder.tsx",
+    "src/components/ui/chart.tsx",
+    "src/components/ui/sidebar.tsx",
+    "src/components/FloatingRecordingIndicator.tsx"
+  ]
 }

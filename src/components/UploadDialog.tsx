@@ -1,5 +1,9 @@
+"use client";
+
 import { useState, useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useMutation } from "convex/react";
+import { api } from "../../convex/_generated/api";
+import { Id } from "../../convex/_generated/dataModel";
 import {
   Dialog,
   DialogContent,
@@ -11,77 +15,61 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useToast } from "@/hooks/use-toast";
-import { Upload, Loader2, Link, Search, ExternalLink } from "lucide-react";
+import { Upload, Loader2, Link } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ScrollArea } from "@/components/ui/scroll-area";
-
-interface AudioLinkResult {
-  url: string;
-  name: string;
-  potential?: boolean;
-}
+import { toast } from "sonner";
 
 interface UploadDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onUploadComplete: () => void;
-  communicatorId?: string;
+  communicatorId?: Id<"communicators">;
 }
 
-export const UploadDialog = ({ open, onOpenChange, onUploadComplete, communicatorId }: UploadDialogProps) => {
-  const { toast } = useToast();
+export const UploadDialog = ({
+  open,
+  onOpenChange,
+  onUploadComplete,
+  communicatorId,
+}: UploadDialogProps) => {
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
   const [uploading, setUploading] = useState(false);
   const [activeTab, setActiveTab] = useState<"file" | "url">("file");
   const [isDragging, setIsDragging] = useState(false);
-  const [scraping, setScraping] = useState(false);
-  const [foundAudioLinks, setFoundAudioLinks] = useState<AudioLinkResult[]>([]);
-  const [showAudioPicker, setShowAudioPicker] = useState(false);
+
+  const generateUploadUrl = useMutation(api.sermons.generateUploadUrl);
+  const createSermon = useMutation(api.sermons.create);
 
   const validateFile = useCallback((selectedFile: File): boolean => {
-    const validTypes = ["audio/mpeg", "audio/wav", "audio/x-m4a", "audio/mp4"];
     const maxSize = 300 * 1024 * 1024; // 300MB
+    const validExt = /\.(mp3|wav|m4a)$/i.test(selectedFile.name);
+    const validType = ["audio/mpeg", "audio/wav", "audio/x-m4a", "audio/mp4"].includes(
+      selectedFile.type
+    );
 
-    if (!validTypes.includes(selectedFile.type) && !selectedFile.name.match(/\.(mp3|wav|m4a)$/i)) {
-      toast({
-        title: "Invalid file type",
-        description: "Please upload an MP3, WAV, or M4A file",
-        variant: "destructive",
-      });
+    if (!validExt && !validType) {
+      toast.error("Please upload an MP3, WAV, or M4A file");
       return false;
     }
-
     if (selectedFile.size > maxSize) {
-      toast({
-        title: "File too large",
-        description: "Maximum file size is 300MB",
-        variant: "destructive",
-      });
+      toast.error("Maximum file size is 300MB");
       return false;
     }
-
     return true;
-  }, [toast]);
+  }, []);
 
-  const handleFileSelect = useCallback((selectedFile: File) => {
-    if (validateFile(selectedFile)) {
-      setFile(selectedFile);
-      if (!title) {
-        setTitle(selectedFile.name.replace(/\.[^/.]+$/, ""));
+  const handleFileSelect = useCallback(
+    (selectedFile: File) => {
+      if (validateFile(selectedFile)) {
+        setFile(selectedFile);
+        if (!title) setTitle(selectedFile.name.replace(/\.[^/.]+$/, ""));
+        setActiveTab("file");
       }
-      setActiveTab("file");
-    }
-  }, [title, validateFile]);
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    if (selectedFile) {
-      handleFileSelect(selectedFile);
-    }
-  };
+    },
+    [title, validateFile]
+  );
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -101,440 +89,92 @@ export const UploadDialog = ({ open, onOpenChange, onUploadComplete, communicato
     e.stopPropagation();
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-
-    const droppedFile = e.dataTransfer.files?.[0];
-    if (droppedFile) {
-      handleFileSelect(droppedFile);
-    }
-  }, [handleFileSelect]);
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
+      const dropped = e.dataTransfer.files?.[0];
+      if (dropped) handleFileSelect(dropped);
+    },
+    [handleFileSelect]
+  );
 
   const handleFileUpload = async () => {
     if (!file) return;
-
     setUploading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
+      // 1. Get upload URL from Convex storage
+      const uploadUrl = await generateUploadUrl();
 
-      const fileExt = file.name.split(".").pop();
-      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+      // 2. Upload file directly to Convex storage
+      const res = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": file.type || "audio/mpeg" },
+        body: file,
+      });
+      if (!res.ok) throw new Error(`Storage upload failed: ${res.statusText}`);
+      const { storageId } = await res.json();
 
-      const { error: uploadError } = await supabase.storage
-        .from("sermons")
-        .upload(fileName, file);
-
-      if (uploadError) throw uploadError;
-
-      const { data: sermon, error: dbError } = await supabase
-        .from("sermons")
-        .insert({
-          user_id: user.id,
-          title: title || file.name,
-          file_url: fileName,
-          file_type: "audio",
-          transcription_status: "pending",
-          communicator_id: communicatorId || null,
-        })
-        .select()
-        .single();
-
-      if (dbError) throw dbError;
-
-      if (sermon) {
-        const { error: triggerError } = await supabase.functions.invoke('transcribe-sermon', {
-          body: { sermonId: sermon.id }
-        });
-        if (triggerError) {
-          console.error('Transcription trigger failed:', triggerError);
-          // Mark as failed so it doesn't sit in "pending" forever
-          await supabase
-            .from('sermons')
-            .update({
-              transcription_status: 'failed',
-              error_message: `Failed to start transcription: ${triggerError.message}`,
-            })
-            .eq('id', sermon.id);
-          throw new Error(`Could not start transcription: ${triggerError.message}`);
-        }
-      }
-
-      toast({
-        title: "Upload successful",
-        description: "Your sermon is being transcribed",
+      // 3. Create sermon record + schedule transcription
+      await createSermon({
+        title: title.trim() || file.name.replace(/\.[^/.]+$/, ""),
+        fileId: storageId,
+        fileType: "audio",
+        communicatorId: communicatorId,
       });
 
+      toast.success("Uploaded — transcription starting");
       onUploadComplete();
       onOpenChange(false);
       setFile(null);
       setTitle("");
-    } catch (error: any) {
-      toast({
-        title: "Upload failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const isApplePodcastsUrl = (urlString: string): boolean => {
-    try {
-      const parsed = new URL(urlString);
-      return parsed.hostname === 'podcasts.apple.com';
-    } catch {
-      return false;
-    }
-  };
-
-  const isYouTubeUrl = (urlString: string): boolean => {
-    try {
-      const parsed = new URL(urlString);
-      return parsed.hostname === 'youtube.com' || 
-             parsed.hostname === 'www.youtube.com' || 
-             parsed.hostname === 'youtu.be' ||
-             parsed.hostname === 'm.youtube.com';
-    } catch {
-      return false;
-    }
-  };
-
-  const isSubsplashUrl = (urlString: string): boolean => {
-    try {
-      const parsed = new URL(urlString);
-      return parsed.hostname.endsWith('subspla.sh') || 
-             parsed.hostname.endsWith('subsplash.com');
-    } catch {
-      return false;
-    }
-  };
-
-  const scrapeForAudioLinks = async (pageUrl: string) => {
-    setScraping(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('scrape-audio-links', {
-        body: { url: pageUrl }
-      });
-
-      if (error) throw error;
-      if (!data.success) throw new Error(data.error);
-
-      const allLinks = [...(data.audioLinks || []), ...(data.potentialAudioLinks || [])];
-      
-      if (allLinks.length > 0) {
-        setFoundAudioLinks(allLinks);
-        setShowAudioPicker(true);
-        if (data.pageTitle && !title) {
-          setTitle(data.pageTitle);
-        }
-        toast({
-          title: `Found ${data.audioLinks?.length || 0} audio link(s)`,
-          description: "Select the audio file you want to import",
-        });
-      } else {
-        toast({
-          title: "No audio files found",
-          description: "This page doesn't contain direct links to audio files. Try right-clicking the audio player on the page, copying the audio URL, and pasting it here.",
-          variant: "destructive",
-        });
-      }
-    } catch (error: any) {
-      console.error("Scrape failed:", error);
-      toast({
-        title: "Could not scan page",
-        description: "Try right-clicking the audio player on the page and copying the audio URL directly.",
-        variant: "destructive",
-      });
-    } finally {
-      setScraping(false);
-    }
-  };
-
-  const handleSelectAudioLink = async (audioUrl: string) => {
-    setShowAudioPicker(false);
-    setFoundAudioLinks([]);
-    setUrl(audioUrl);
-    
-    // Immediately start downloading the selected audio link
-    setUploading(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('download-audio-url', {
-        body: { url: audioUrl, title: title || undefined, communicatorId: communicatorId || undefined }
-      });
-
-      if (error) throw error;
-      if (!data.success) throw new Error(data.error);
-
-      toast({
-        title: "Upload successful",
-        description: "Your sermon is being transcribed",
-      });
-
-      onUploadComplete();
-      onOpenChange(false);
-      setUrl("");
-      setTitle("");
-    } catch (error: any) {
-      toast({
-        title: "Upload failed",
-        description: error.message,
-        variant: "destructive",
-      });
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setUploading(false);
     }
   };
 
   const handleUrlUpload = async () => {
-    if (!url) return;
-
-    let parsedUrl: URL;
-    try {
-      parsedUrl = new URL(url);
-    } catch {
-      toast({
-        title: "Invalid URL",
-        description: "Please enter a valid URL",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const hostname = parsedUrl.hostname;
-
-    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
-      toast({
-        title: "Invalid URL",
-        description: "Please enter an HTTP or HTTPS URL",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Subsplash URLs have DNS-invalid hostnames (leading hyphens) that Edge Functions
-    // can't fetch directly, but Firecrawl can handle them — route straight to scraper
-    if (isSubsplashUrl(url)) {
-      toast({
-        title: "Scanning Subsplash page for audio...",
-        description: "Looking for downloadable audio links on this page.",
-      });
-      await scrapeForAudioLinks(url);
-      return;
-    }
-
-    // Block other DNS-invalid hostnames that aren't Subsplash
-    const labels = hostname.split('.');
-    const hasInvalidLabel = labels.some(label => label.startsWith('-') || label.endsWith('-'));
-    if (hasInvalidLabel) {
-      toast({
-        title: "Invalid URL",
-        description: "This link contains an invalid domain name. Please check the URL or try copying a different share link.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const isApplePodcast = isApplePodcastsUrl(url);
-    
-    const isYouTube = isYouTubeUrl(url);
-    if (isYouTube) {
-      setUploading(true);
-      try {
-        const { data, error } = await supabase.functions.invoke('download-youtube-audio', {
-          body: { url, title: title || undefined, communicatorId: communicatorId || undefined }
-        });
-
-        if (error) throw error;
-
-        if (data?.fallback) {
-          toast({
-            title: "YouTube import unavailable",
-            description: data.error || "Please download the audio manually and upload the file directly.",
-            variant: "destructive",
-          });
-          return;
-        }
-
-        if (!data?.success) throw new Error(data?.error || "Failed to extract YouTube audio");
-
-        // If conversion completed immediately (short video)
-        if (data.status === 'completed') {
-          toast({
-            title: "Upload successful",
-            description: `"${data.title || 'YouTube Audio'}" is being transcribed`,
-          });
-          onUploadComplete();
-          onOpenChange(false);
-          setUrl("");
-          setTitle("");
-          return;
-        }
-
-        // Long video - poll for completion
-        if (data.status === 'converting' && data.sermonId) {
-          toast({
-            title: "Converting YouTube video",
-            description: "This may take a few minutes for longer videos. You can close this dialog — it will continue in the background.",
-          });
-          onUploadComplete(); // Refresh list to show "downloading" status
-          onOpenChange(false);
-          setUrl("");
-          setTitle("");
-
-          // Poll in background
-          const pollForCompletion = async (sermonId: string) => {
-            for (let i = 0; i < 60; i++) { // Up to ~10 minutes
-              await new Promise((r) => setTimeout(r, 10000)); // Wait 10s between polls
-              try {
-                const { data: pollData } = await supabase.functions.invoke('youtube-audio-poll', {
-                  body: { sermonId }
-                });
-                if (pollData?.status === 'completed') {
-                  toast({
-                    title: "YouTube import complete",
-                    description: "Your sermon is now being transcribed.",
-                  });
-                  onUploadComplete();
-                  return;
-                }
-                if (pollData?.status === 'failed') {
-                  toast({
-                    title: "YouTube import failed",
-                    description: pollData.error || "Conversion failed. Try uploading the audio manually.",
-                    variant: "destructive",
-                  });
-                  return;
-                }
-                // status === 'converting' - keep polling
-              } catch (e) {
-                console.error('Poll error:', e);
-              }
-            }
-            toast({
-              title: "YouTube import timed out",
-              description: "The video is taking too long to convert. Try a shorter video or upload the audio manually.",
-              variant: "destructive",
-            });
-          };
-
-          pollForCompletion(data.sermonId);
-          return;
-        }
-
-        // Fallback for unexpected status
-        toast({
-          title: "Upload successful",
-          description: `"${data.title || 'YouTube Audio'}" is being transcribed`,
-        });
-        onUploadComplete();
-        onOpenChange(false);
-        setUrl("");
-        setTitle("");
-      } catch (error: any) {
-        toast({
-          title: "YouTube import failed",
-          description: error.message || "Could not extract audio. Try downloading the audio manually and uploading the file.",
-          variant: "destructive",
-        });
-      } finally {
-        setUploading(false);
-      }
-      return;
-    }
-
-    if (!isApplePodcast) {
-      const streamingServices = [
-        { pattern: /spotify\.com/i, name: "Spotify" },
-        { pattern: /music\.apple\.com/i, name: "Apple Music" },
-        { pattern: /soundcloud\.com/i, name: "SoundCloud" },
-        { pattern: /podcasts\.google\.com/i, name: "Google Podcasts" },
-        { pattern: /deezer\.com/i, name: "Deezer" },
-        { pattern: /tidal\.com/i, name: "Tidal" },
-      ];
-      
-      const blockedService = streamingServices.find(s => s.pattern.test(hostname));
-      if (blockedService) {
-        toast({
-          title: "Streaming URL not supported",
-          description: `${blockedService.name} links don't provide direct audio access. Please use a direct link to an MP3, WAV, or M4A file.`,
-          variant: "destructive",
-        });
-        return;
-      }
-    }
-
+    if (!url.trim()) return;
     setUploading(true);
     try {
-      const functionName = isApplePodcast ? 'download-podcast-url' : 'download-audio-url';
-      
-      const { data, error } = await supabase.functions.invoke(functionName, {
-        body: { url, title: title || undefined, communicatorId: communicatorId || undefined }
+      // Download via API route, then create sermon record
+      const res = await fetch("/api/upload-from-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: url.trim(), title: title.trim(), communicatorId }),
       });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "Failed");
 
-      // Check for webpage detection in either error or data
-      const errorMsg = error?.message || '';
-      const dataError = data?.error || '';
-      const combinedMsg = `${errorMsg} ${dataError}`;
-      const isWebpage = combinedMsg.includes("webpage") || combinedMsg.includes("Content-Type: text/html");
-
-      if (isWebpage) {
-        setUploading(false);
-        toast({
-          title: "Scanning page for audio files...",
-          description: "That URL is a webpage. Looking for audio links on the page.",
-        });
-        await scrapeForAudioLinks(url);
-        return;
-      }
-
-      if (error) throw error;
-      if (!data?.success) throw new Error(dataError || "Unknown error");
-
-      toast({
-        title: "Upload successful",
-        description: isApplePodcast 
-          ? `"${data.episodeTitle || 'Episode'}" is being transcribed`
-          : "Your sermon is being transcribed",
-      });
-
+      toast.success("Downloaded — transcription starting");
       onUploadComplete();
       onOpenChange(false);
       setUrl("");
       setTitle("");
-    } catch (error: any) {
-      const msg = error.message || "Unknown error";
-      toast({
-        title: "Upload failed",
-        description: msg,
-        variant: "destructive",
-      });
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "URL upload failed");
     } finally {
       setUploading(false);
     }
   };
 
   const handleUpload = () => {
-    if (activeTab === "file") {
-      handleFileUpload();
-    } else {
-      handleUrlUpload();
-    }
+    if (activeTab === "file") handleFileUpload();
+    else handleUrlUpload();
   };
 
-  const canUpload = activeTab === "file" ? !!file : !!url;
+  const canUpload = activeTab === "file" ? !!file : !!url.trim();
 
   return (
-    <Dialog open={open} onOpenChange={(v) => {
-      if (!v) {
-        setShowAudioPicker(false);
-        setFoundAudioLinks([]);
-      }
-      onOpenChange(v);
-    }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v: boolean) => {
+        if (!uploading) onOpenChange(v);
+      }}
+    >
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Upload Sermon</DialogTitle>
@@ -553,151 +193,104 @@ export const UploadDialog = ({ open, onOpenChange, onUploadComplete, communicato
             />
           </div>
 
-          {showAudioPicker ? (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <Search className="h-4 w-4" />
-                Audio files found on page
-              </div>
-              <ScrollArea className="max-h-60">
-                <div className="space-y-2 pr-3">
-                  {foundAudioLinks.map((link, i) => (
-                    <button
-                      key={i}
-                      onClick={() => handleSelectAudioLink(link.url)}
-                      disabled={uploading}
-                      className={cn(
-                        "w-full text-left p-3 rounded-lg border transition-colors",
-                        "hover:bg-accent hover:border-primary/30",
-                        "focus:outline-none focus:ring-2 focus:ring-primary/50",
-                        link.potential && "opacity-70"
-                      )}
-                    >
-                      <div className="flex items-start gap-2">
-                        <ExternalLink className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium truncate">{link.name}</p>
-                          <p className="text-xs text-muted-foreground truncate">{link.url}</p>
-                          {link.potential && (
-                            <p className="text-xs text-muted-foreground/70 mt-1 italic">May not be a direct audio file</p>
-                          )}
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </ScrollArea>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setShowAudioPicker(false);
-                  setFoundAudioLinks([]);
-                }}
+          <Tabs value={activeTab} onValueChange={(v: string) => setActiveTab(v as "file" | "url")}>
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="file">
+                <Upload className="mr-2 h-4 w-4" />
+                File Upload
+              </TabsTrigger>
+              <TabsTrigger value="url">
+                <Link className="mr-2 h-4 w-4" />
+                From URL
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="file" className="space-y-2">
+              <Label htmlFor="file">Audio File</Label>
+              <div
+                onDragEnter={handleDragEnter}
+                onDragLeave={handleDragLeave}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+                className={cn(
+                  "relative border-2 border-dashed rounded-lg p-6 transition-colors cursor-pointer",
+                  isDragging
+                    ? "border-primary bg-primary/5"
+                    : "border-muted-foreground/25 hover:border-muted-foreground/50",
+                  file && "border-primary/50 bg-primary/5"
+                )}
+                onClick={() => document.getElementById("file-input")?.click()}
               >
-                Back to URL input
-              </Button>
-            </div>
-          ) : (
-            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "file" | "url")}>
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="file">
-                  <Upload className="mr-2 h-4 w-4" />
-                  File Upload
-                </TabsTrigger>
-                <TabsTrigger value="url">
-                  <Link className="mr-2 h-4 w-4" />
-                  From URL
-                </TabsTrigger>
-              </TabsList>
-              <TabsContent value="file" className="space-y-2">
-                <Label htmlFor="file">Audio File</Label>
-                <div
-                  onDragEnter={handleDragEnter}
-                  onDragLeave={handleDragLeave}
-                  onDragOver={handleDragOver}
-                  onDrop={handleDrop}
-                  className={cn(
-                    "relative border-2 border-dashed rounded-lg p-6 transition-colors cursor-pointer",
-                    isDragging 
-                      ? "border-primary bg-primary/5" 
-                      : "border-muted-foreground/25 hover:border-muted-foreground/50",
-                    file && "border-primary/50 bg-primary/5"
-                  )}
-                  onClick={() => document.getElementById('file')?.click()}
-                >
-                  <Input
-                    id="file"
-                    type="file"
-                    accept=".mp3,.wav,.m4a,audio/*"
-                    onChange={handleFileChange}
-                    className="hidden"
-                  />
-                  <div className="flex flex-col items-center justify-center text-center">
-                    <Upload className={cn(
+                <input
+                  id="file-input"
+                  type="file"
+                  accept=".mp3,.wav,.m4a,audio/*"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleFileSelect(f);
+                  }}
+                  className="hidden"
+                />
+                <div className="flex flex-col items-center justify-center text-center">
+                  <Upload
+                    className={cn(
                       "h-8 w-8 mb-2",
                       isDragging ? "text-primary" : "text-muted-foreground"
-                    )} />
-                    {file ? (
-                      <div>
-                        <p className="font-medium text-sm">{file.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {(file.size / 1024 / 1024).toFixed(2)}MB
-                        </p>
-                      </div>
-                    ) : (
-                      <div>
-                        <p className="text-sm font-medium">
-                          {isDragging ? "Drop your file here" : "Drag & drop or click to upload"}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          MP3, WAV, or M4A (max 300MB)
-                        </p>
-                      </div>
                     )}
-                  </div>
+                  />
+                  {file ? (
+                    <div>
+                      <p className="font-medium text-sm">{file.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {(file.size / 1024 / 1024).toFixed(2)} MB
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-sm font-medium">
+                        {isDragging ? "Drop your file here" : "Drag & drop or click to upload"}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        MP3, WAV, or M4A (max 300MB)
+                      </p>
+                    </div>
+                  )}
                 </div>
-              </TabsContent>
-              <TabsContent value="url" className="space-y-2">
-                <Label htmlFor="url">Audio URL</Label>
-                <Input
-                  id="url"
-                  type="url"
-                  placeholder="https://example.com/sermon.mp3"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                />
-                <p className="text-sm text-muted-foreground">
-                  Paste a direct audio link, Apple Podcasts link, or a webpage — we'll try to find the audio
-                </p>
-              </TabsContent>
-            </Tabs>
-          )}
+              </div>
+            </TabsContent>
 
-          {!showAudioPicker && (
-            <Button
-              onClick={handleUpload}
-              disabled={!canUpload || uploading || scraping}
-              className="w-full"
-            >
-              {scraping ? (
-                <>
-                  <Search className="mr-2 h-4 w-4 animate-pulse" />
-                  Scanning page for audio...
-                </>
-              ) : uploading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {activeTab === "url" ? "Downloading..." : "Uploading..."}
-                </>
-              ) : (
-                <>
-                  <Upload className="mr-2 h-4 w-4" />
-                  Upload and Transcribe
-                </>
-              )}
-            </Button>
-          )}
+            <TabsContent value="url" className="space-y-2">
+              <Label htmlFor="audio-url">Audio URL</Label>
+              <Input
+                id="audio-url"
+                type="url"
+                placeholder="https://example.com/sermon.mp3"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+              />
+              <p className="text-sm text-muted-foreground">
+                Paste a direct audio link (MP3, WAV, M4A)
+              </p>
+            </TabsContent>
+          </Tabs>
+
+          <Button
+            onClick={handleUpload}
+            disabled={!canUpload || uploading}
+            className="w-full"
+          >
+            {uploading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                {activeTab === "url" ? "Downloading..." : "Uploading..."}
+              </>
+            ) : (
+              <>
+                <Upload className="mr-2 h-4 w-4" />
+                Upload and Transcribe
+              </>
+            )}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

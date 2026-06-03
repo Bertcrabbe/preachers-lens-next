@@ -18,7 +18,7 @@ export const AnimatedCounter = ({
   const [displayValue, setDisplayValue] = useState(0);
   const [hasAnimated, setHasAnimated] = useState(false);
   const prevValue = useRef(0);
-  const rafRef = useRef<number>();
+  const rafRef = useRef<number>(0);
   const elementRef = useRef<HTMLSpanElement>(null);
 
   // Trigger animation when element becomes visible
