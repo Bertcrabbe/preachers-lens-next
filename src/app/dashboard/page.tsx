@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useQuery, useMutation } from "convex/react";
-import { useUser } from "@clerk/nextjs";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
@@ -23,13 +22,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   Upload, FileText, Clock, Loader2, ListChecks, Pencil, Check, X,
-  FolderOpen, ArrowLeft, Plus, Trash2, ChevronDown, Users,
+  FolderOpen, ArrowLeft, Plus, Trash2, ChevronDown,
 } from "lucide-react";
 import { UploadDialog } from "@/components/UploadDialog";
-import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 import { toast } from "sonner";
-import logo from "@/assets/preacherslens-logo.png";
-import Image from "next/image";
 import Link from "next/link";
 
 type Communicator = {
@@ -51,7 +47,6 @@ type Sermon = {
 };
 
 export default function DashboardPage() {
-  const { user } = useUser();
   const sermons = useQuery(api.sermons.list) ?? [];
   const communicators = useQuery(api.communicators.list) ?? [];
 
@@ -391,30 +386,8 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b bg-card">
-        <div className="container mx-auto px-4 py-8 flex items-center justify-between">
-          <div className="flex items-center gap-7">
-            <Image src={logo} alt="The Preacher's Lens" className="h-24 w-24 drop-shadow-2xl" />
-            <div>
-              <h1 className="text-6xl font-black tracking-tight bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent drop-shadow-sm">
-                The Preacher&apos;s Lens
-              </h1>
-              <p className="text-lg text-muted-foreground font-semibold tracking-widest uppercase mt-1.5">
-                Sermon Evaluation Agent
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <ThemeSwitcher />
-            <Button variant="outline" size="sm" asChild>
-              <Link href="/sign-out">Sign Out</Link>
-            </Button>
-          </div>
-        </div>
-      </header>
-
-      <main className="container mx-auto px-4 pt-16 pb-8">
+    <div>
+      <main className="container mx-auto px-4 pt-8 pb-8">
         {selectedCommunicator ? (
           communicatorSermons()
         ) : (
