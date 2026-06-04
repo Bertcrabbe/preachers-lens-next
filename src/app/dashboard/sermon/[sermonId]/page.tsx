@@ -61,9 +61,18 @@ export default function SermonViewerPage() {
   // Build comment index (sentence -> comments)
   const commentsBySentence: Record<number, typeof comments> = {};
   for (const c of comments) {
-    const sent = sortedSentences.findIndex(
-      (s) => s.startTimeMs <= c.startTimeMs && s.endTimeMs >= c.endTimeMs
+    // Map comment to the sentence active when the comment started
+    let sent = sortedSentences.findIndex(
+      (s) => s.startTimeMs <= c.startTimeMs && s.endTimeMs > c.startTimeMs
     );
+    // Fallback: nearest sentence by start time
+    if (sent < 0 && sortedSentences.length > 0) {
+      let minDiff = Infinity;
+      sortedSentences.forEach((s, i) => {
+        const diff = Math.abs(s.startTimeMs - c.startTimeMs);
+        if (diff < minDiff) { minDiff = diff; sent = i; }
+      });
+    }
     if (sent >= 0) {
       if (!commentsBySentence[sent]) commentsBySentence[sent] = [];
       commentsBySentence[sent].push(c);
@@ -341,7 +350,7 @@ export default function SermonViewerPage() {
                             <Trash2 className="h-3 w-3 text-destructive" />
                           </Button>
                         </div>
-                        {c.audioUrl && (
+                        {c.audioUrl && c.audioUrl.startsWith("http") && (
                           <audio controls src={c.audioUrl} className="mt-2 h-8 w-full" />
                         )}
                         <p className="text-xs text-muted-foreground mt-1">

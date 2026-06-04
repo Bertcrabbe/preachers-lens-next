@@ -38,6 +38,88 @@ export const fixAllUserIds = mutation({
 
 // ─── Migration mutations ──────────────────────────────────────────────────────
 
+// Upload URL that doesn't require auth (for server-side migration scripts)
+export const generateUploadUrlUnauthed = mutation({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+export const updateSermonAudio = mutation({
+  args: {
+    supabaseFileUrl: v.string(), // path like "1902a65a.../file.mp3"
+    fullFileUrl: v.string(),     // full Supabase URL (for restoration)
+    title: v.string(),           // fallback match when fileUrl was cleared
+    fileId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const sermons = await ctx.db.query("sermons").collect();
+
+    // Primary: match by fileUrl containing the path
+    let match = sermons.find(s =>
+      s.fileUrl && s.fileUrl.includes(args.supabaseFileUrl)
+    );
+
+    // Fallback: match by title for corrupted sermons (fileUrl was cleared)
+    if (!match && args.title) {
+      match = sermons.find(s =>
+        !s.fileId && !s.fileUrl && s.title === args.title
+      );
+      if (!match) {
+        match = sermons.find(s =>
+          !s.fileId && !s.fileUrl &&
+          s.title && args.title.length > 10 &&
+          s.title.toLowerCase().includes(args.title.slice(0, 15).toLowerCase())
+        );
+      }
+    }
+
+    if (!match) return null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await ctx.db.patch(match._id, { fileId: args.fileId as any, fileUrl: undefined });
+    return match._id;
+  },
+});
+
+// Restore fileUrl for sermons that had it cleared
+export const restoreFileUrl = mutation({
+  args: {
+    supabaseFileUrl: v.string(), // path like "1902a65a.../file.mp3"
+    fullFileUrl: v.string(),      // full https URL
+    title: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Find sermon by title match AND missing fileUrl/fileId
+    const sermons = await ctx.db.query("sermons").collect();
+    const match = sermons.find(s =>
+      !s.fileUrl && !s.fileId &&
+      (s.title === args.title || s.title?.includes(args.title.slice(0, 20)))
+    );
+    if (!match) {
+      // Try by any sermon with no fileUrl/fileId that could match
+      return null;
+    }
+    await ctx.db.patch(match._id, { fileUrl: args.fullFileUrl });
+    return match._id;
+  },
+});
+
+export const listSermonsDebug = query({
+  args: {},
+  handler: async (ctx) => {
+    const sermons = await ctx.db.query("sermons").collect();
+    return sermons.map(s => ({
+      id: s._id,
+      title: s.title,
+      hasFileUrl: !!s.fileUrl,
+      hasFileId: !!s.fileId,
+      fileId: s.fileId,
+      fileUrlSnippet: s.fileUrl?.slice(-50),
+    }));
+  },
+});
+
 export const createCommunicatorMigrated = mutation({
   args: { userId: v.string(), name: v.string() },
   handler: async (ctx, args) => {

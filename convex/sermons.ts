@@ -129,9 +129,10 @@ export const remove = mutation({
 });
 
 export const getStorageUrl = query({
-  args: { storageId: v.id("_storage") },
+  args: { storageId: v.string() }, // accept string to handle migrated IDs
   handler: async (ctx, args) => {
-    return await ctx.storage.getUrl(args.storageId);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return await ctx.storage.getUrl(args.storageId as any);
   },
 });
 
