@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
@@ -47,6 +48,7 @@ type Sermon = {
 };
 
 export default function DashboardPage() {
+  const router = useRouter();
   const sermons = useQuery(api.sermons.list) ?? [];
   const communicators = useQuery(api.communicators.list) ?? [];
 
@@ -156,7 +158,7 @@ export default function DashboardPage() {
   const sermonCard = (sermon: Sermon) => {
     const currentComm = communicators.find((c) => c._id === sermon.communicatorId);
     return (
-      <Card key={sermon._id} className="hover:shadow-lg transition-shadow">
+      <Card key={sermon._id} className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => router.push(`/dashboard/sermon/${sermon._id}`)}>
         <CardHeader>
           <div className="flex justify-between items-start mb-2">
             {editingSermonId === sermon._id ? (

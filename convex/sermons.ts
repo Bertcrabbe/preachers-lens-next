@@ -188,3 +188,102 @@ export const saveSentences = internalMutation({
     });
   },
 });
+
+export const getSentences = query({
+  args: { sermonId: v.id("sermons") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+    const sermon = await ctx.db.get(args.sermonId);
+    if (!sermon || sermon.userId !== identity.subject) return [];
+    return await ctx.db
+      .query("sermonSentences")
+      .withIndex("by_sermon", (q) => q.eq("sermonId", args.sermonId))
+      .collect();
+  },
+});
+
+export const getComments = query({
+  args: { sermonId: v.id("sermons") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+    return await ctx.db
+      .query("sermonComments")
+      .withIndex("by_sermon", (q) => q.eq("sermonId", args.sermonId))
+      .collect();
+  },
+});
+
+export const getHighlights = query({
+  args: { sermonId: v.id("sermons") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+    return await ctx.db
+      .query("sermonHighlights")
+      .withIndex("by_sermon", (q) => q.eq("sermonId", args.sermonId))
+      .collect();
+  },
+});
+
+export const addComment = mutation({
+  args: {
+    sermonId: v.id("sermons"),
+    commentText: v.string(),
+    startTimeMs: v.number(),
+    endTimeMs: v.number(),
+    ruleId: v.optional(v.id("evaluationRules")),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+    return await ctx.db.insert("sermonComments", {
+      userId: identity.subject,
+      sermonId: args.sermonId,
+      commentText: args.commentText,
+      startTimeMs: args.startTimeMs,
+      endTimeMs: args.endTimeMs,
+      ruleId: args.ruleId,
+      createdAt: Date.now(),
+    });
+  },
+});
+
+export const deleteComment = mutation({
+  args: { commentId: v.id("sermonComments") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+    const comment = await ctx.db.get(args.commentId);
+    if (!comment || comment.userId !== identity.subject) throw new Error("Not found");
+    await ctx.db.delete(args.commentId);
+  },
+});
+
+export const toggleHighlight = mutation({
+  args: {
+    sermonId: v.id("sermons"),
+    sentenceIndex: v.number(),
+    color: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+    const existing = await ctx.db
+      .query("sermonHighlights")
+      .withIndex("by_sermon", (q) => q.eq("sermonId", args.sermonId))
+      .filter((q) => q.eq(q.field("sentenceIndex"), args.sentenceIndex))
+      .first();
+    if (existing) {
+      await ctx.db.delete(existing._id);
+    } else {
+      await ctx.db.insert("sermonHighlights", {
+        userId: identity.subject,
+        sermonId: args.sermonId,
+        sentenceIndex: args.sentenceIndex,
+        color: args.color,
+      });
+    }
+  },
+});

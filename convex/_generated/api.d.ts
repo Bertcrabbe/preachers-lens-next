@@ -9,6 +9,8 @@
  */
 
 import type * as communicators from "../communicators.js";
+import type * as evaluationRules from "../evaluationRules.js";
+import type * as migration from "../migration.js";
 import type * as sermons from "../sermons.js";
 import type * as transcription from "../transcription.js";
 
@@ -20,6 +22,8 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   communicators: typeof communicators;
+  evaluationRules: typeof evaluationRules;
+  migration: typeof migration;
   sermons: typeof sermons;
   transcription: typeof transcription;
 }>;
