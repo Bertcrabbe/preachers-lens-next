@@ -1,7 +1,6 @@
 "use client";
 
-import { useTheme } from "next-themes";
-import { Sun, Moon, Monitor } from "lucide-react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -9,30 +8,55 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Palette } from "lucide-react";
+
+const THEMES = [
+  { id: "berts-badness", label: "Bert's Badness" },
+  { id: "midnight-ember", label: "Midnight Ember" },
+  { id: "arctic-steel", label: "Arctic Steel" },
+  { id: "seahawks", label: "Seahawks" },
+  { id: "ny-giants", label: "NY Giants" },
+  { id: "green-bay-packers", label: "Green Bay Packers" },
+  { id: "indianapolis-colts", label: "Indianapolis Colts" },
+  { id: "denver-broncos", label: "Denver Broncos" },
+  { id: "ny-yankees", label: "NY Yankees" },
+];
 
 export function ThemeSwitcher() {
-  const { theme, setTheme } = useTheme();
+  const [current, setCurrent] = useState("berts-badness");
 
-  const icon =
-    theme === "dark" ? <Moon className="h-4 w-4" /> :
-    theme === "light" ? <Sun className="h-4 w-4" /> :
-    <Monitor className="h-4 w-4" />;
+  useEffect(() => {
+    const saved = localStorage.getItem("pl-theme") || "berts-badness";
+    setCurrent(saved);
+    document.documentElement.setAttribute("data-theme", saved);
+  }, []);
+
+  const setTheme = (id: string) => {
+    setCurrent(id);
+    localStorage.setItem("pl-theme", id);
+    document.documentElement.setAttribute("data-theme", id);
+  };
+
+  const currentLabel = THEMES.find((t) => t.id === current)?.label || current;
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="icon">{icon}</Button>
+        <Button variant="outline" size="sm" className="gap-2">
+          <Palette className="h-4 w-4" />
+          {currentLabel}
+        </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => setTheme("light")}>
-          <Sun className="mr-2 h-4 w-4" />Light
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("dark")}>
-          <Moon className="mr-2 h-4 w-4" />Dark
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("system")}>
-          <Monitor className="mr-2 h-4 w-4" />System
-        </DropdownMenuItem>
+        {THEMES.map((t) => (
+          <DropdownMenuItem
+            key={t.id}
+            onClick={() => setTheme(t.id)}
+            className={current === t.id ? "bg-accent" : ""}
+          >
+            {t.label}
+          </DropdownMenuItem>
+        ))}
       </DropdownMenuContent>
     </DropdownMenu>
   );

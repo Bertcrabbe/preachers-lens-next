@@ -77,8 +77,8 @@ export default function DashboardPage() {
 
   const unassignedSermons = sermons.filter((s) => !s.communicatorId);
 
-  const getStatusBadge = (status: string) => {
-    if (status === "completed") return <Badge variant="default">Transcript <Check className="ml-1 h-3 w-3" /></Badge>;
+  const getStatusBadge = (status: string, sermonId?: string) => {
+    if (status === "completed") return <Badge variant="default" className="cursor-pointer hover:opacity-80" onClick={() => router.push(`/dashboard/sermon/${sermonId}`)}>Transcript <Check className="ml-1 h-3 w-3" /></Badge>;
     if (status === "processing") return <Badge variant="secondary"><Loader2 className="mr-1 h-3 w-3 animate-spin" />Processing</Badge>;
     if (status === "error") return <Badge variant="destructive">Error</Badge>;
     return <Badge variant="outline">Pending</Badge>;
@@ -158,7 +158,7 @@ export default function DashboardPage() {
   const sermonCard = (sermon: Sermon) => {
     const currentComm = communicators.find((c) => c._id === sermon.communicatorId);
     return (
-      <Card key={sermon._id} className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => router.push(`/dashboard/sermon/${sermon._id}`)}>
+      <Card key={sermon._id} className="hover:shadow-lg transition-shadow">
         <CardHeader>
           <div className="flex justify-between items-start mb-2">
             {editingSermonId === sermon._id ? (
@@ -178,14 +178,14 @@ export default function DashboardPage() {
               </div>
             ) : (
               <div className="flex items-center gap-1 group">
-                <CardTitle className="text-lg">{sermon.title || "Untitled Sermon"}</CardTitle>
+                <CardTitle className="text-lg cursor-pointer hover:underline" onClick={() => router.push(`/dashboard/sermon/${sermon._id}`)}>{sermon.title || "Untitled Sermon"}</CardTitle>
                 <Button size="icon" variant="ghost" className="h-6 w-6 opacity-0 group-hover:opacity-100"
                   onClick={() => { setEditingSermonId(sermon._id); setEditingTitle(sermon.title || ""); }}>
                   <Pencil className="h-3 w-3" />
                 </Button>
               </div>
             )}
-            {getStatusBadge(sermon.transcriptionStatus)}
+            {getStatusBadge(sermon.transcriptionStatus, sermon._id)}
           </div>
           <CardDescription>
             <span className="flex items-center gap-1 text-sm">

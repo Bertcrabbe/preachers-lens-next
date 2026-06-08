@@ -136,11 +136,149 @@ export const getStorageUrl = query({
   },
 });
 
+// ---------------------------------------------------------------------------
+// Public queries for the sermon viewer
+// ---------------------------------------------------------------------------
+
+export const getSermonMetrics = query({
+  args: { sermonId: v.id("sermons") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null;
+    return await ctx.db
+      .query("sermonMetrics")
+      .withIndex("by_sermon", (q) => q.eq("sermonId", args.sermonId))
+      .first();
+  },
+});
+
+export const getSentenceMetrics = query({
+  args: { sermonId: v.id("sermons") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+    return await ctx.db
+      .query("sermonSentenceMetrics")
+      .withIndex("by_sermon", (q) => q.eq("sermonId", args.sermonId))
+      .collect();
+  },
+});
+
+export const getFillerWords = query({
+  args: { sermonId: v.id("sermons") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+    return await ctx.db
+      .query("sermonFillerWords")
+      .withIndex("by_sermon", (q) => q.eq("sermonId", args.sermonId))
+      .collect();
+  },
+});
+
+export const getSilences = query({
+  args: { sermonId: v.id("sermons") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+    return await ctx.db
+      .query("sermonSilences")
+      .withIndex("by_sermon", (q) => q.eq("sermonId", args.sermonId))
+      .collect();
+  },
+});
+
+export const getScriptureRefs = query({
+  args: { sermonId: v.id("sermons") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+    return await ctx.db
+      .query("sermonScriptureRefs")
+      .withIndex("by_sermon", (q) => q.eq("sermonId", args.sermonId))
+      .collect();
+  },
+});
+
+export const getConfusingPhrases = query({
+  args: { sermonId: v.id("sermons") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+    return await ctx.db
+      .query("sermonConfusingPhrases")
+      .withIndex("by_sermon", (q) => q.eq("sermonId", args.sermonId))
+      .collect();
+  },
+});
+
+export const getQuestions = query({
+  args: { sermonId: v.id("sermons") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+    return await ctx.db
+      .query("sermonQuestions")
+      .withIndex("by_sermon", (q) => q.eq("sermonId", args.sermonId))
+      .collect();
+  },
+});
+
+export const getMissedQuestions = query({
+  args: { sermonId: v.id("sermons") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+    return await ctx.db
+      .query("sermonMissedQuestions")
+      .withIndex("by_sermon", (q) => q.eq("sermonId", args.sermonId))
+      .collect();
+  },
+});
+
+export const getIllustrations = query({
+  args: { sermonId: v.id("sermons") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+    return await ctx.db
+      .query("sermonIllustrations")
+      .withIndex("by_sermon", (q) => q.eq("sermonId", args.sermonId))
+      .collect();
+  },
+});
+
+export const getIntent = query({
+  args: { sermonId: v.id("sermons") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null;
+    return await ctx.db
+      .query("sermonIntent")
+      .withIndex("by_sermon", (q) => q.eq("sermonId", args.sermonId))
+      .first();
+  },
+});
+
+// ---------------------------------------------------------------------------
 // Internal queries/mutations called from actions
+// ---------------------------------------------------------------------------
+
 export const getInternal = internalQuery({
   args: { sermonId: v.id("sermons") },
   handler: async (ctx, args) => {
     return await ctx.db.get(args.sermonId);
+  },
+});
+
+export const getSentencesInternal = internalQuery({
+  args: { sermonId: v.id("sermons") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("sermonSentences")
+      .withIndex("by_sermon", (q) => q.eq("sermonId", args.sermonId))
+      .order("asc")
+      .collect();
   },
 });
 

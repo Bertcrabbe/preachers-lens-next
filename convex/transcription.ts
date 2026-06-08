@@ -123,6 +123,11 @@ export const transcribeSermon = internalAction({
             durationSeconds: durationMs ? Math.round(durationMs / 1000) : undefined,
           });
 
+          // Kick off analytics pipeline
+          await ctx.runAction(internal.analytics.runAllAnalytics, {
+            sermonId: args.sermonId,
+          });
+
           return;
         }
 

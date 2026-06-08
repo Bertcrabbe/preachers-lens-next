@@ -98,4 +98,96 @@ export default defineSchema({
     lastAnalyzedAt: v.optional(v.number()),
   })
     .index("by_user", ["userId"]),
+
+  // Detailed per-sentence WPM data
+  sermonSentenceMetrics: defineTable({
+    sermonId: v.id("sermons"),
+    sentenceIndex: v.number(),
+    wpm: v.number(),
+    wordCount: v.number(),
+    startTimeMs: v.number(),
+    endTimeMs: v.number(),
+  }).index("by_sermon", ["sermonId"]),
+
+  // Filler words
+  sermonFillerWords: defineTable({
+    sermonId: v.id("sermons"),
+    word: v.string(),
+    count: v.number(),
+    // occurrences as JSON array of {sentenceIndex, startTimeMs}
+    occurrences: v.string(),
+  }).index("by_sermon", ["sermonId"]),
+
+  // Silence pauses
+  sermonSilences: defineTable({
+    sermonId: v.id("sermons"),
+    startTimeMs: v.number(),
+    endTimeMs: v.number(),
+    durationMs: v.number(),
+  }).index("by_sermon", ["sermonId"]),
+
+  // Scripture references
+  sermonScriptureRefs: defineTable({
+    sermonId: v.id("sermons"),
+    reference: v.string(),
+    context: v.string(),
+    startTimeMs: v.number(),
+    sentenceIndex: v.number(),
+  }).index("by_sermon", ["sermonId"]),
+
+  // Confusing phrases / insider language
+  sermonConfusingPhrases: defineTable({
+    sermonId: v.id("sermons"),
+    phrase: v.string(),
+    severity: v.string(),
+    suggestion: v.string(),
+    sentenceIndex: v.number(),
+    startTimeMs: v.number(),
+  }).index("by_sermon", ["sermonId"]),
+
+  // Questions asked
+  sermonQuestions: defineTable({
+    sermonId: v.id("sermons"),
+    questionText: v.string(),
+    isCongregationQuestion: v.boolean(),
+    sentenceIndex: v.number(),
+    startTimeMs: v.number(),
+  }).index("by_sermon", ["sermonId"]),
+
+  // Missed question opportunities
+  sermonMissedQuestions: defineTable({
+    sermonId: v.id("sermons"),
+    originalText: v.string(),
+    suggestedQuestion: v.string(),
+    sentenceIndex: v.number(),
+    startTimeMs: v.number(),
+  }).index("by_sermon", ["sermonId"]),
+
+  // Illustrations / stories
+  sermonIllustrations: defineTable({
+    sermonId: v.id("sermons"),
+    type: v.string(),
+    description: v.string(),
+    startSentenceIndex: v.number(),
+    endSentenceIndex: v.number(),
+    startTimeMs: v.number(),
+  }).index("by_sermon", ["sermonId"]),
+
+  // Preacher's intent
+  sermonIntent: defineTable({
+    sermonId: v.id("sermons"),
+    know: v.string(),
+    feel: v.string(),
+    doAction: v.string(),
+    emotionalTone: v.string(),
+    headHeartRatio: v.number(),
+  }).index("by_sermon", ["sermonId"]),
+
+  // Evaluation rule results
+  sermonRuleResults: defineTable({
+    sermonId: v.id("sermons"),
+    ruleId: v.id("evaluationRules"),
+    flaggedSentences: v.string(),
+    updatedAt: v.number(),
+  }).index("by_sermon", ["sermonId"]).index("by_sermon_rule", ["sermonId", "ruleId"]),
 });
