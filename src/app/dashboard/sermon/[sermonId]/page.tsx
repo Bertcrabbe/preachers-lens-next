@@ -15,12 +15,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
-import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
@@ -45,7 +39,6 @@ import {
   Volume2,
   Check,
   Pencil,
-  BarChart2,
   AlignLeft,
   List,
   ChevronDown,
@@ -291,7 +284,6 @@ export default function SermonViewerPage() {
 
   // ── View mode ───────────────────────────────────────────────────────────────
   const [viewMode, setViewMode] = useState<"sentence" | "paragraph">("paragraph");
-  const [dashboardCollapsed, setDashboardCollapsed] = useState(false);
   const [engagementExpanded, setEngagementExpanded] = useState(false);
 
   // ── Auto scroll ─────────────────────────────────────────────────────────────
@@ -303,7 +295,6 @@ export default function SermonViewerPage() {
   const isAutoScrollingRef = useRef(false);
 
   // ── Coach / AI section ──────────────────────────────────────────────────────
-  const [coachOpen, setCoachOpen] = useState(false);
   const [coachLoading, setCoachLoading] = useState(false);
   const [coachNotes, setCoachNotes] = useState<Array<{
     sentence_index: number;
@@ -1450,95 +1441,10 @@ export default function SermonViewerPage() {
             </CardContent>
           </Card>
 
-          {/* ── Digital Bert / AI Coach ── */}
-          <Collapsible open={coachOpen} onOpenChange={setCoachOpen}>
-            <Card>
-              <CollapsibleTrigger asChild>
-                <button className="w-full flex items-center justify-between px-6 py-4">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="h-5 w-5 text-primary" />
-                    <h2 className="font-semibold text-base">Digital Bert — AI Coach</h2>
-                    {coachNotes && coachNotes.length > 0 && (
-                      <Badge variant="secondary">{coachNotes.length} notes</Badge>
-                    )}
-                  </div>
-                  <ChevronDown className={cn("h-5 w-5 text-muted-foreground transition-transform", coachOpen && "rotate-180")} />
-                </button>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <CardContent className="pt-0 space-y-4">
-                  <p className="text-sm text-muted-foreground">
-                    AI reviews this sermon&apos;s transcript and writes timestamped coaching notes in your voice.
-                    Requires Anthropic API key to be configured.
-                  </p>
-
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Button
-                      onClick={handleGenerateCoachNotes}
-                      disabled={coachLoading || sortedSentences.length === 0}
-                      variant="outline"
-                      size="sm"
-                    >
-                      {coachLoading ? (
-                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Reviewing sermon...</>
-                      ) : (
-                        <><Sparkles className="mr-2 h-4 w-4" />{coachNotes ? "Re-generate notes" : "Generate AI Coach notes"}</>
-                      )}
-                    </Button>
-                  </div>
-
-                  {coachNotes && coachNotes.length > 0 ? (
-                    <>
-                      <div className="space-y-3">
-                        {coachNotes.map((n, i) => {
-                          const ms = n.start_time_ms || 0;
-                          const ts = formatMsLong(ms);
-                          return (
-                            <div key={i} className="rounded-lg border border-border/60 bg-muted/30 p-3">
-                              <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                                <Badge variant="default" className="font-mono text-[10px]">#{i + 1}</Badge>
-                                <Badge variant="outline" className="font-mono text-[10px]">{ts}</Badge>
-                                {n.category && (
-                                  <Badge variant="secondary" className="text-[10px] capitalize">{n.category}</Badge>
-                                )}
-                                <button
-                                  className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline ml-auto"
-                                  onClick={() => seekTo(ms)}
-                                >
-                                  Jump to moment
-                                </button>
-                              </div>
-                              <p className="text-sm leading-relaxed">{n.comment_text}</p>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      <div className="flex items-center justify-end gap-2 pt-2 border-t">
-                        <Button variant="ghost" size="sm" onClick={() => setCoachNotes(null)} disabled={coachApplying}>
-                          Discard
-                        </Button>
-                        <Button size="sm" onClick={handleApplyCoachNotes} disabled={coachApplying}>
-                          {coachApplying ? (
-                            <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Applying...</>
-                          ) : (
-                            `Apply ${coachNotes.length} as comments`
-                          )}
-                        </Button>
-                      </div>
-                    </>
-                  ) : coachNotes !== null ? (
-                    <p className="text-sm text-muted-foreground text-center py-4">
-                      No notes generated. Check that ANTHROPIC_API_KEY is set in Convex and try re-running analysis.
-                    </p>
-                  ) : null}
-                </CardContent>
-              </CollapsibleContent>
-            </Card>
-          </Collapsible>
         </div>
 
         {/* ── Right column: Analytics ── */}
-        <div className="w-80 shrink-0 hidden xl:block">
+        <div className="w-80 shrink-0 hidden xl:block sticky top-4 self-start overflow-y-auto max-h-[calc(100vh-6rem)]">
           <AnalyticsSidebar
             metrics={metrics}
             sentenceMetricsSorted={sentenceMetricsSorted}
@@ -1562,8 +1468,13 @@ export default function SermonViewerPage() {
             setEngagementExpanded={setEngagementExpanded}
             currentMs={currentMs}
             seekTo={seekTo}
-            dashboardCollapsed={dashboardCollapsed}
-            setDashboardCollapsed={setDashboardCollapsed}
+            coachLoading={coachLoading}
+            coachNotes={coachNotes}
+            coachApplying={coachApplying}
+            hasSentences={sortedSentences.length > 0}
+            onGenerateCoachNotes={handleGenerateCoachNotes}
+            onApplyCoachNotes={handleApplyCoachNotes}
+            onDiscardCoachNotes={() => setCoachNotes(null)}
           />
         </div>
       </div>
@@ -1593,11 +1504,28 @@ export default function SermonViewerPage() {
           setEngagementExpanded={setEngagementExpanded}
           currentMs={currentMs}
           seekTo={seekTo}
-          dashboardCollapsed={dashboardCollapsed}
-          setDashboardCollapsed={setDashboardCollapsed}
+          coachLoading={coachLoading}
+          coachNotes={coachNotes}
+          coachApplying={coachApplying}
+          hasSentences={sortedSentences.length > 0}
+          onGenerateCoachNotes={handleGenerateCoachNotes}
+          onApplyCoachNotes={handleApplyCoachNotes}
+          onDiscardCoachNotes={() => setCoachNotes(null)}
         />
       </div>
     </div>
+  );
+}
+
+// ─── Analytics Panel Card ─────────────────────────────────────────────────────
+function AnalyticsPanel({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <Card className="shadow-sm">
+      <CardHeader className="pb-2 pt-3 px-4">
+        <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">{title}</CardTitle>
+      </CardHeader>
+      <CardContent className="px-4 pb-4 pt-0">{children}</CardContent>
+    </Card>
   );
 }
 
@@ -1625,8 +1553,13 @@ function AnalyticsSidebar({
   setEngagementExpanded,
   currentMs,
   seekTo,
-  dashboardCollapsed,
-  setDashboardCollapsed,
+  coachLoading,
+  coachNotes,
+  coachApplying,
+  hasSentences,
+  onGenerateCoachNotes,
+  onApplyCoachNotes,
+  onDiscardCoachNotes,
 }: {
   metrics: {
     wpm?: number | null;
@@ -1659,442 +1592,445 @@ function AnalyticsSidebar({
   setEngagementExpanded: (v: boolean) => void;
   currentMs: number;
   seekTo: (ms: number) => void;
-  dashboardCollapsed: boolean;
-  setDashboardCollapsed: (v: boolean) => void;
+  coachLoading: boolean;
+  coachNotes: Array<{ sentence_index: number; category?: string; comment_text: string; start_time_ms: number; end_time_ms: number }> | null;
+  coachApplying: boolean;
+  hasSentences: boolean;
+  onGenerateCoachNotes: () => void;
+  onApplyCoachNotes: () => void;
+  onDiscardCoachNotes: () => void;
 }) {
   return (
-    <Card>
-      <button
-        className="w-full flex items-center justify-between px-6 py-4"
-        onClick={() => setDashboardCollapsed(!dashboardCollapsed)}
-      >
-        <CardTitle className="text-base flex items-center gap-2">
-          <BarChart2 className="h-4 w-4" />
-          Sermon Analytics
-        </CardTitle>
-        <ChevronDown className={cn("h-5 w-5 text-muted-foreground transition-transform", dashboardCollapsed && "rotate-180")} />
-      </button>
-
-      {!dashboardCollapsed && (
-        <CardContent className="px-3 pt-0 pb-4">
-          <Accordion type="multiple" defaultValue={["engagement", "pace"]} className="w-full">
-
-            {/* ── Engagement Score ── */}
-            <AccordionItem value="engagement">
-              <AccordionTrigger className="text-sm font-medium">
-                Engagement Score
-              </AccordionTrigger>
-              <AccordionContent>
-                {metrics === undefined ? (
-                  <AnalyticsSkeleton />
-                ) : metrics === null ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Analyzing...
-                  </div>
-                ) : (
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-4xl font-bold text-amber-600">
-                        {engagementScore !== null ? engagementScore.toFixed(1) : "—"}
-                        <span className="text-base text-muted-foreground font-normal">/10</span>
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-xs px-2"
-                        onClick={() => setEngagementExpanded(!engagementExpanded)}
-                      >
-                        {engagementExpanded ? "Collapse" : "Details"}
-                      </Button>
-                    </div>
-                    {engagementScore !== null && (
-                      <Progress value={(engagementScore / 10) * 100} className="h-2 mb-3" />
-                    )}
-                    {engagementExpanded && (
-                      <div className="space-y-2 border-t pt-3">
-                        {[
-                          { label: "🎭 Stories & Illustrations", value: metrics.illustrationScore },
-                          { label: "❤️ Emotional Resonance", value: metrics.emotionalResonanceScore },
-                          { label: "📖 Scripture", value: metrics.scriptureRefs ? Math.min(10, metrics.scriptureRefs * 1.5) : null },
-                          { label: "🎤 Engagement", value: engagementScore },
-                        ].map(({ label, value }) => (
-                          <div key={label} className="flex items-center justify-between text-xs">
-                            <span className="text-muted-foreground">{label}</span>
-                            <div className="flex items-center gap-2">
-                              <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
-                                <div
-                                  className={cn(
-                                    "h-full rounded-full",
-                                    value === null || value === undefined ? "bg-muted-foreground/30" :
-                                    value >= 7 ? "bg-emerald-500" : value >= 4 ? "bg-amber-500" : "bg-red-500"
-                                  )}
-                                  style={{ width: value !== null && value !== undefined ? `${(value / 10) * 100}%` : "0%" }}
-                                />
-                              </div>
-                              <span className="font-medium w-5 text-right">
-                                {value !== null && value !== undefined ? value.toFixed(1) : "—"}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </AccordionContent>
-            </AccordionItem>
-
-            {/* ── Speaking Pace ── */}
-            <AccordionItem value="pace">
-              <AccordionTrigger className="text-sm font-medium">
-                Speaking Pace
-              </AccordionTrigger>
-              <AccordionContent>
-                {metrics === undefined ? (
-                  <AnalyticsSkeleton />
-                ) : (
-                  <div>
-                    <div className="text-3xl font-bold text-primary">
-                      {avgWpm !== null ? `${avgWpm} WPM` : "—"}
-                    </div>
-                    {wordCount !== null && (
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {wordCount.toLocaleString()} words total
-                      </p>
-                    )}
-                    {sentenceMetricsSorted.length >= 2 && (
-                      <WpmSparkline
-                        data={sentenceMetricsSorted}
-                        currentMs={currentMs}
-                        onSeek={seekTo}
-                      />
-                    )}
-                    {avgWpm !== null && (
-                      <p className="text-xs text-muted-foreground mt-2">
-                        {avgWpm < 120
-                          ? "⚠️ Slower than ideal — consider picking up the pace"
-                          : avgWpm > 180
-                          ? "⚠️ Fast pace — listeners may struggle to keep up"
-                          : "✅ Good pace for comprehension (120–180 WPM)"}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </AccordionContent>
-            </AccordionItem>
-
-            {/* ── Filler Words ── */}
-            <AccordionItem value="filler">
-              <AccordionTrigger className="text-sm font-medium">
-                Filler Words
-              </AccordionTrigger>
-              <AccordionContent>
-                {fillerWords === undefined ? (
-                  <AnalyticsSkeleton />
-                ) : fillerWords.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">None detected</p>
-                ) : (
-                  <div className="space-y-2">
-                    <p className="text-xs text-muted-foreground mb-2">
-                      {fillerWords.reduce((s, fw) => s + fw.count, 0)} total filler words
-                    </p>
-                    {[...fillerWords]
-                      .sort((a, b) => b.count - a.count)
-                      .map((fw) => (
-                        <div key={fw._id} className="flex items-center justify-between">
-                          <span className="text-sm">"{fw.word}"</span>
-                          <Badge variant="secondary">{fw.count}×</Badge>
-                        </div>
-                      ))}
-                  </div>
-                )}
-              </AccordionContent>
-            </AccordionItem>
-
-            {/* ── Use of Silence ── */}
-            <AccordionItem value="silence">
-              <AccordionTrigger className="text-sm font-medium">
-                Use of Silence
-              </AccordionTrigger>
-              <AccordionContent>
-                {silences === undefined ? (
-                  <AnalyticsSkeleton />
-                ) : (
-                  <div>
-                    <div className="grid grid-cols-2 gap-3 mb-3">
-                      <div className="bg-muted rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold">{longSilences.length}</div>
-                        <div className="text-xs text-muted-foreground">Pauses ≥ 3s</div>
-                      </div>
-                      <div className="bg-muted rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold">
-                          {longestSilence > 0 ? `${(longestSilence / 1000).toFixed(1)}s` : "—"}
-                        </div>
-                        <div className="text-xs text-muted-foreground">Longest pause</div>
-                      </div>
-                    </div>
-                    {longSilences.length > 0 && (
-                      <div className="space-y-1 max-h-32 overflow-y-auto">
-                        {longSilences.map((s) => (
-                          <button
-                            key={s._id}
-                            className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted transition-colors flex items-center justify-between"
-                            onClick={() => seekTo(s.startTimeMs)}
-                          >
-                            <span className="text-muted-foreground">{formatMs(s.startTimeMs)}</span>
-                            <span className="font-medium">{(s.durationMs / 1000).toFixed(1)}s pause</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    {longSilences.length === 0 && (
-                      <p className="text-sm text-muted-foreground">No significant pauses detected</p>
-                    )}
-                  </div>
-                )}
-              </AccordionContent>
-            </AccordionItem>
-
-            {/* ── Scripture References ── */}
-            <AccordionItem value="scripture">
-              <AccordionTrigger className="text-sm font-medium">
-                Scripture References
-              </AccordionTrigger>
-              <AccordionContent>
-                {scriptureRefs === undefined ? (
-                  <AnalyticsSkeleton />
-                ) : scriptureRefs.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No scripture references detected</p>
-                ) : (
-                  <div>
-                    <p className="text-sm text-muted-foreground mb-2">
-                      {scriptureRefs.length} reference{scriptureRefs.length !== 1 ? "s" : ""} found
-                    </p>
-                    <div className="space-y-2 max-h-48 overflow-y-auto">
-                      {scriptureRefs.map((ref) => (
-                        <button
-                          key={ref._id}
-                          className="w-full text-left rounded-lg border p-2.5 hover:bg-muted transition-colors"
-                          onClick={() => seekTo(ref.startTimeMs)}
-                        >
-                          <div className="font-medium text-sm text-emerald-700 dark:text-emerald-400">{ref.reference}</div>
-                          {ref.context && (
-                            <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{ref.context}</div>
+    <div className="space-y-3">
+      {/* ── Engagement Score ── */}
+      <AnalyticsPanel title="Engagement Score">
+        {metrics === undefined ? (
+          <AnalyticsSkeleton />
+        ) : metrics === null ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Analyzing...
+          </div>
+        ) : (
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-4xl font-bold text-amber-600">
+                {engagementScore !== null ? engagementScore.toFixed(1) : "—"}
+                <span className="text-base text-muted-foreground font-normal">/10</span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs px-2"
+                onClick={() => setEngagementExpanded(!engagementExpanded)}
+              >
+                {engagementExpanded ? "Collapse" : "Details"}
+              </Button>
+            </div>
+            {engagementScore !== null && (
+              <Progress value={(engagementScore / 10) * 100} className="h-2 mb-3" />
+            )}
+            {engagementExpanded && (
+              <div className="space-y-2 border-t pt-3">
+                {[
+                  { label: "🎭 Stories & Illustrations", value: metrics.illustrationScore },
+                  { label: "❤️ Emotional Resonance", value: metrics.emotionalResonanceScore },
+                  { label: "📖 Scripture", value: metrics.scriptureRefs ? Math.min(10, metrics.scriptureRefs * 1.5) : null },
+                  { label: "🎤 Engagement", value: engagementScore },
+                ].map(({ label, value }) => (
+                  <div key={label} className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">{label}</span>
+                    <div className="flex items-center gap-2">
+                      <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className={cn(
+                            "h-full rounded-full",
+                            value === null || value === undefined ? "bg-muted-foreground/30" :
+                            value >= 7 ? "bg-emerald-500" : value >= 4 ? "bg-amber-500" : "bg-red-500"
                           )}
-                          <div className="text-xs text-primary mt-1">{formatMs(ref.startTimeMs)}</div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </AccordionContent>
-            </AccordionItem>
-
-            {/* ── Insider Language ── */}
-            <AccordionItem value="insider">
-              <AccordionTrigger className="text-sm font-medium">
-                Insider Language
-              </AccordionTrigger>
-              <AccordionContent>
-                {confusingPhrases === undefined ? (
-                  <AnalyticsSkeleton />
-                ) : (
-                  <div>
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm text-muted-foreground">
-                        {confusingPhrases.length} flagged phrase{confusingPhrases.length !== 1 ? "s" : ""}
+                          style={{ width: value !== null && value !== undefined ? `${(value / 10) * 100}%` : "0%" }}
+                        />
+                      </div>
+                      <span className="font-medium w-5 text-right">
+                        {value !== null && value !== undefined ? value.toFixed(1) : "—"}
                       </span>
-                      <div className="text-right">
-                        <div className="text-sm font-medium">
-                          Accessibility: {accessibilityScore.toFixed(1)}/10
-                        </div>
-                        <Progress value={accessibilityScore * 10} className="h-1.5 w-20 mt-1" />
-                      </div>
                     </div>
-                    {confusingPhrases.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">✅ No insider language detected</p>
-                    ) : (
-                      <div className="space-y-3 max-h-48 overflow-y-auto">
-                        {confusingPhrases.map((p) => (
-                          <div key={p._id} className="border rounded-lg p-2.5 space-y-1.5">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-medium text-sm">"{p.phrase}"</span>
-                              <SeverityBadge severity={p.severity} />
-                            </div>
-                            <p className="text-xs text-muted-foreground">💡 {p.suggestion}</p>
-                            <button
-                              className="text-xs text-primary hover:underline"
-                              onClick={() => seekTo(p.startTimeMs)}
-                            >
-                              {formatMs(p.startTimeMs)}
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </div>
-                )}
-              </AccordionContent>
-            </AccordionItem>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </AnalyticsPanel>
 
-            {/* ── Questions ── */}
-            <AccordionItem value="questions">
-              <AccordionTrigger className="text-sm font-medium">
-                Questions
-              </AccordionTrigger>
-              <AccordionContent>
-                {questions === undefined ? (
-                  <AnalyticsSkeleton />
-                ) : questions.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No questions detected</p>
-                ) : (
-                  <div>
-                    <p className="text-sm text-muted-foreground mb-2">
-                      {congregationQuestions.length} congregation · {questions.length} total
-                    </p>
-                    <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                      {congregationQuestions.map((q) => (
+      {/* ── Speaking Pace / WPM ── */}
+      <AnalyticsPanel title="Speaking Pace">
+        {metrics === undefined ? (
+          <AnalyticsSkeleton />
+        ) : (
+          <div>
+            <div className="text-3xl font-bold text-primary">
+              {avgWpm !== null ? `${avgWpm} WPM` : "—"}
+            </div>
+            {wordCount !== null && (
+              <p className="text-sm text-muted-foreground mt-1">
+                {wordCount.toLocaleString()} words total
+              </p>
+            )}
+            {sentenceMetricsSorted.length >= 2 && (
+              <WpmSparkline
+                data={sentenceMetricsSorted}
+                currentMs={currentMs}
+                onSeek={seekTo}
+              />
+            )}
+            {avgWpm !== null && (
+              <p className="text-xs text-muted-foreground mt-2">
+                {avgWpm < 120
+                  ? "⚠️ Slower than ideal — consider picking up the pace"
+                  : avgWpm > 180
+                  ? "⚠️ Fast pace — listeners may struggle to keep up"
+                  : "✅ Good pace for comprehension (120–180 WPM)"}
+              </p>
+            )}
+          </div>
+        )}
+      </AnalyticsPanel>
+
+      {/* ── Filler Words ── */}
+      <AnalyticsPanel title="Filler Words">
+        {fillerWords === undefined ? (
+          <AnalyticsSkeleton />
+        ) : fillerWords.length === 0 ? (
+          <p className="text-sm text-muted-foreground">None detected</p>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground mb-2">
+              {fillerWords.reduce((s, fw) => s + fw.count, 0)} total filler words
+            </p>
+            {[...fillerWords]
+              .sort((a, b) => b.count - a.count)
+              .map((fw) => (
+                <div key={fw._id} className="flex items-center justify-between">
+                  <span className="text-sm">"{fw.word}"</span>
+                  <Badge variant="secondary">{fw.count}×</Badge>
+                </div>
+              ))}
+          </div>
+        )}
+      </AnalyticsPanel>
+
+      {/* ── Use of Silence ── */}
+      <AnalyticsPanel title="Use of Silence">
+        {silences === undefined ? (
+          <AnalyticsSkeleton />
+        ) : (
+          <div>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div className="bg-muted rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold">{longSilences.length}</div>
+                <div className="text-xs text-muted-foreground">Pauses ≥ 3s</div>
+              </div>
+              <div className="bg-muted rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold">
+                  {longestSilence > 0 ? `${(longestSilence / 1000).toFixed(1)}s` : "—"}
+                </div>
+                <div className="text-xs text-muted-foreground">Longest pause</div>
+              </div>
+            </div>
+            {longSilences.length > 0 && (
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {longSilences.map((s) => (
+                  <button
+                    key={s._id}
+                    className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted transition-colors flex items-center justify-between"
+                    onClick={() => seekTo(s.startTimeMs)}
+                  >
+                    <span className="text-muted-foreground">{formatMs(s.startTimeMs)}</span>
+                    <span className="font-medium">{(s.durationMs / 1000).toFixed(1)}s pause</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {longSilences.length === 0 && (
+              <p className="text-sm text-muted-foreground">No significant pauses detected</p>
+            )}
+          </div>
+        )}
+      </AnalyticsPanel>
+
+      {/* ── Scripture References ── */}
+      <AnalyticsPanel title="Scripture References">
+        {scriptureRefs === undefined ? (
+          <AnalyticsSkeleton />
+        ) : scriptureRefs.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No scripture references detected</p>
+        ) : (
+          <div>
+            <p className="text-sm text-muted-foreground mb-2">
+              {scriptureRefs.length} reference{scriptureRefs.length !== 1 ? "s" : ""} found
+            </p>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {scriptureRefs.map((ref) => (
+                <button
+                  key={ref._id}
+                  className="w-full text-left rounded-lg border p-2.5 hover:bg-muted transition-colors"
+                  onClick={() => seekTo(ref.startTimeMs)}
+                >
+                  <div className="font-medium text-sm text-emerald-700 dark:text-emerald-400">{ref.reference}</div>
+                  {ref.context && (
+                    <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{ref.context}</div>
+                  )}
+                  <div className="text-xs text-primary mt-1">{formatMs(ref.startTimeMs)}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </AnalyticsPanel>
+
+      {/* ── Insider Language ── */}
+      <AnalyticsPanel title="Insider Language">
+        {confusingPhrases === undefined ? (
+          <AnalyticsSkeleton />
+        ) : (
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm text-muted-foreground">
+                {confusingPhrases.length} flagged phrase{confusingPhrases.length !== 1 ? "s" : ""}
+              </span>
+              <div className="text-right">
+                <div className="text-sm font-medium">
+                  Accessibility: {accessibilityScore.toFixed(1)}/10
+                </div>
+                <Progress value={accessibilityScore * 10} className="h-1.5 w-20 mt-1" />
+              </div>
+            </div>
+            {confusingPhrases.length === 0 ? (
+              <p className="text-sm text-muted-foreground">✅ No insider language detected</p>
+            ) : (
+              <div className="space-y-3 max-h-48 overflow-y-auto">
+                {confusingPhrases.map((p) => (
+                  <div key={p._id} className="border rounded-lg p-2.5 space-y-1.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-sm">"{p.phrase}"</span>
+                      <SeverityBadge severity={p.severity} />
+                    </div>
+                    <p className="text-xs text-muted-foreground">💡 {p.suggestion}</p>
+                    <button
+                      className="text-xs text-primary hover:underline"
+                      onClick={() => seekTo(p.startTimeMs)}
+                    >
+                      {formatMs(p.startTimeMs)}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </AnalyticsPanel>
+
+      {/* ── Questions ── */}
+      <AnalyticsPanel title="Questions">
+        {questions === undefined ? (
+          <AnalyticsSkeleton />
+        ) : questions.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No questions detected</p>
+        ) : (
+          <div>
+            <p className="text-sm text-muted-foreground mb-2">
+              {congregationQuestions.length} congregation · {questions.length} total
+            </p>
+            <div className="space-y-1.5 max-h-40 overflow-y-auto">
+              {congregationQuestions.map((q) => (
+                <button
+                  key={q._id}
+                  className="w-full text-left rounded-lg border border-blue-200 dark:border-blue-800 p-2.5 hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors"
+                  onClick={() => seekTo(q.startTimeMs)}
+                >
+                  <p className="text-sm line-clamp-2">{q.questionText}</p>
+                  <span className="text-xs text-primary mt-0.5 block">{formatMs(q.startTimeMs)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </AnalyticsPanel>
+
+      {/* ── Missed Question Opportunities ── */}
+      <AnalyticsPanel title="Missed Question Opportunities">
+        {missedQuestions === undefined ? (
+          <AnalyticsSkeleton />
+        ) : missedQuestions.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No missed opportunities found</p>
+        ) : (
+          <div className="space-y-3 max-h-48 overflow-y-auto">
+            {missedQuestions.map((mq) => (
+              <div key={mq._id} className="border rounded-lg p-2.5 space-y-1.5">
+                <p className="text-xs text-muted-foreground italic line-clamp-2">"{mq.originalText}"</p>
+                <p className="text-sm font-medium">→ {mq.suggestedQuestion}</p>
+                <button
+                  className="text-xs text-primary hover:underline"
+                  onClick={() => seekTo(mq.startTimeMs)}
+                >
+                  {formatMs(mq.startTimeMs)}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </AnalyticsPanel>
+
+      {/* ── Stories & Illustrations ── */}
+      <AnalyticsPanel title="Stories & Illustrations">
+        {illustrations === undefined ? (
+          <AnalyticsSkeleton />
+        ) : illustrations.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No illustrations detected</p>
+        ) : (
+          <div>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {Object.entries(illustrationTypes).map(([type, count]) => (
+                <Badge key={type} variant="secondary">
+                  {type}: {count}
+                </Badge>
+              ))}
+            </div>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {illustrations.map((ill) => (
+                <button
+                  key={ill._id}
+                  className="w-full text-left rounded-lg border p-2.5 hover:bg-muted transition-colors"
+                  onClick={() => seekTo(ill.startTimeMs)}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <Badge variant="outline" className="text-xs">{ill.type}</Badge>
+                    <span className="text-xs text-primary">{formatMs(ill.startTimeMs)}</span>
+                  </div>
+                  <p className="text-sm text-muted-foreground line-clamp-2">{ill.description}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </AnalyticsPanel>
+
+      {/* ── Preacher’s Intent ── */}
+      <AnalyticsPanel title="Preacher’s Intent">
+        {intent === undefined ? (
+          <AnalyticsSkeleton />
+        ) : intent === null ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Analyzing intent...
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 gap-2">
+              {[
+                { label: "Know", value: intent.know, color: "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800" },
+                { label: "Feel", value: intent.feel, color: "bg-pink-50 dark:bg-pink-950/30 border-pink-200 dark:border-pink-800" },
+                { label: "Do", value: intent.doAction, color: "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800" },
+              ].map(({ label, value, color }) => (
+                <div key={label} className={cn("rounded-lg border p-2.5", color)}>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                    {label}
+                  </div>
+                  <p className="text-sm">{value}</p>
+                </div>
+              ))}
+            </div>
+            {intent.emotionalTone && (
+              <div>
+                <div className="text-xs text-muted-foreground mb-1">Emotional Tone</div>
+                <Badge variant="secondary">{intent.emotionalTone}</Badge>
+              </div>
+            )}
+            <div>
+              <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+                <span>🧠 Head (logic)</span>
+                <span>❤️ Heart (emotion)</span>
+              </div>
+              <Progress
+                value={Math.round((1 - intent.headHeartRatio) * 100)}
+                className="h-2"
+              />
+              <div className="flex items-center justify-between text-xs mt-1">
+                <span>{Math.round(intent.headHeartRatio * 100)}% head</span>
+                <span>{Math.round((1 - intent.headHeartRatio) * 100)}% heart</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </AnalyticsPanel>
+
+      {/* ── Digital Bert AI Coach ── */}
+      <AnalyticsPanel title="Digital Bert — AI Coach">
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            AI reviews this sermon&apos;s transcript and writes timestamped coaching notes in your voice.
+          </p>
+          <Button
+            onClick={onGenerateCoachNotes}
+            disabled={coachLoading || !hasSentences}
+            variant="outline"
+            size="sm"
+            className="w-full"
+          >
+            {coachLoading ? (
+              <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Reviewing sermon...</>
+            ) : (
+              <><Sparkles className="mr-2 h-4 w-4" />{coachNotes ? "Re-generate notes" : "Generate AI Coach notes"}</>
+            )}
+          </Button>
+
+          {coachNotes && coachNotes.length > 0 ? (
+            <>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {coachNotes.map((n, i) => {
+                  const ms = n.start_time_ms || 0;
+                  const ts = formatMsLong(ms);
+                  return (
+                    <div key={i} className="rounded-lg border border-border/60 bg-muted/30 p-3">
+                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                        <Badge variant="default" className="font-mono text-[10px]">#{i + 1}</Badge>
+                        <Badge variant="outline" className="font-mono text-[10px]">{ts}</Badge>
+                        {n.category && (
+                          <Badge variant="secondary" className="text-[10px] capitalize">{n.category}</Badge>
+                        )}
                         <button
-                          key={q._id}
-                          className="w-full text-left rounded-lg border border-blue-200 dark:border-blue-800 p-2.5 hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors"
-                          onClick={() => seekTo(q.startTimeMs)}
+                          className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline ml-auto"
+                          onClick={() => seekTo(ms)}
                         >
-                          <p className="text-sm line-clamp-2">{q.questionText}</p>
-                          <span className="text-xs text-primary mt-0.5 block">{formatMs(q.startTimeMs)}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </AccordionContent>
-            </AccordionItem>
-
-            {/* ── Missed Question Opportunities ── */}
-            <AccordionItem value="missed-questions">
-              <AccordionTrigger className="text-sm font-medium">
-                Missed Question Opportunities
-              </AccordionTrigger>
-              <AccordionContent>
-                {missedQuestions === undefined ? (
-                  <AnalyticsSkeleton />
-                ) : missedQuestions.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No missed opportunities found</p>
-                ) : (
-                  <div className="space-y-3 max-h-48 overflow-y-auto">
-                    {missedQuestions.map((mq) => (
-                      <div key={mq._id} className="border rounded-lg p-2.5 space-y-1.5">
-                        <p className="text-xs text-muted-foreground italic line-clamp-2">"{mq.originalText}"</p>
-                        <p className="text-sm font-medium">→ {mq.suggestedQuestion}</p>
-                        <button
-                          className="text-xs text-primary hover:underline"
-                          onClick={() => seekTo(mq.startTimeMs)}
-                        >
-                          {formatMs(mq.startTimeMs)}
+                          Jump to moment
                         </button>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </AccordionContent>
-            </AccordionItem>
-
-            {/* ── Stories & Illustrations ── */}
-            <AccordionItem value="illustrations">
-              <AccordionTrigger className="text-sm font-medium">
-                Stories & Illustrations
-              </AccordionTrigger>
-              <AccordionContent>
-                {illustrations === undefined ? (
-                  <AnalyticsSkeleton />
-                ) : illustrations.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No illustrations detected</p>
-                ) : (
-                  <div>
-                    <div className="flex flex-wrap gap-2 mb-3">
-                      {Object.entries(illustrationTypes).map(([type, count]) => (
-                        <Badge key={type} variant="secondary">
-                          {type}: {count}
-                        </Badge>
-                      ))}
+                      <p className="text-sm leading-relaxed">{n.comment_text}</p>
                     </div>
-                    <div className="space-y-2 max-h-48 overflow-y-auto">
-                      {illustrations.map((ill) => (
-                        <button
-                          key={ill._id}
-                          className="w-full text-left rounded-lg border p-2.5 hover:bg-muted transition-colors"
-                          onClick={() => seekTo(ill.startTimeMs)}
-                        >
-                          <div className="flex items-center gap-2 mb-1">
-                            <Badge variant="outline" className="text-xs">{ill.type}</Badge>
-                            <span className="text-xs text-primary">{formatMs(ill.startTimeMs)}</span>
-                          </div>
-                          <p className="text-sm text-muted-foreground line-clamp-2">{ill.description}</p>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </AccordionContent>
-            </AccordionItem>
-
-            {/* ── Preacher's Intent ── */}
-            <AccordionItem value="intent">
-              <AccordionTrigger className="text-sm font-medium">
-                Preacher&apos;s Intent
-              </AccordionTrigger>
-              <AccordionContent>
-                {intent === undefined ? (
-                  <AnalyticsSkeleton />
-                ) : intent === null ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Analyzing intent...
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-1 gap-2">
-                      {[
-                        { label: "Know", value: intent.know, color: "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800" },
-                        { label: "Feel", value: intent.feel, color: "bg-pink-50 dark:bg-pink-950/30 border-pink-200 dark:border-pink-800" },
-                        { label: "Do", value: intent.doAction, color: "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800" },
-                      ].map(({ label, value, color }) => (
-                        <div key={label} className={cn("rounded-lg border p-2.5", color)}>
-                          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
-                            {label}
-                          </div>
-                          <p className="text-sm">{value}</p>
-                        </div>
-                      ))}
-                    </div>
-                    {intent.emotionalTone && (
-                      <div>
-                        <div className="text-xs text-muted-foreground mb-1">Emotional Tone</div>
-                        <Badge variant="secondary">{intent.emotionalTone}</Badge>
-                      </div>
-                    )}
-                    <div>
-                      <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-                        <span>🧠 Head (logic)</span>
-                        <span>❤️ Heart (emotion)</span>
-                      </div>
-                      <Progress
-                        value={Math.round((1 - intent.headHeartRatio) * 100)}
-                        className="h-2"
-                      />
-                      <div className="flex items-center justify-between text-xs mt-1">
-                        <span>{Math.round(intent.headHeartRatio * 100)}% head</span>
-                        <span>{Math.round((1 - intent.headHeartRatio) * 100)}% heart</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </AccordionContent>
-            </AccordionItem>
-
-          </Accordion>
-        </CardContent>
-      )}
-    </Card>
+                  );
+                })}
+              </div>
+              <div className="flex items-center justify-end gap-2 pt-2 border-t">
+                <Button variant="ghost" size="sm" onClick={onDiscardCoachNotes} disabled={coachApplying}>
+                  Discard
+                </Button>
+                <Button size="sm" onClick={onApplyCoachNotes} disabled={coachApplying}>
+                  {coachApplying ? (
+                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Applying...</>
+                  ) : (
+                    `Apply ${coachNotes.length} as comments`
+                  )}
+                </Button>
+              </div>
+            </>
+          ) : coachNotes !== null ? (
+            <p className="text-sm text-muted-foreground text-center py-2">
+              No notes generated. Check that ANTHROPIC_API_KEY is configured and try re-running analysis.
+            </p>
+          ) : null}
+        </div>
+      </AnalyticsPanel>
+    </div>
   );
 }
