@@ -42,9 +42,8 @@ export function ThemeSwitcher() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-2">
-          <Palette className="h-4 w-4" />
-          {currentLabel}
+        <Button variant="ghost" size="icon" className="text-foreground/70 hover:text-foreground">
+          <Palette className="h-5 w-5" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
