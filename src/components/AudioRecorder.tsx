@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Mic, Square, Play, Pause, Trash2 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 
 interface AudioRecorderProps {
   onRecordingComplete: (audioBlob: Blob) => void;
@@ -13,7 +13,7 @@ interface AudioRecorderProps {
 }
 
 export const AudioRecorder = ({ onRecordingComplete, onClear, selectedDeviceId, onRecordingStateChange, autoStart, preAcquiredStream }: AudioRecorderProps) => {
-  const { toast } = useToast();
+
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string>("");
@@ -23,7 +23,7 @@ export const AudioRecorder = ({ onRecordingComplete, onClear, selectedDeviceId, 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const timerRef = useRef<ReturnType<typeof setInterval>>();
+  const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const streamRef = useRef<MediaStream | null>(null);
   const stopFnRef = useRef<() => void>(() => {});
 
@@ -157,11 +157,7 @@ export const AudioRecorder = ({ onRecordingComplete, onClear, selectedDeviceId, 
       // This triggers the timer useEffect
       setIsRecording(true);
     } catch (error: any) {
-      toast({
-        title: "Recording failed",
-        description: "Could not access microphone",
-        variant: "destructive",
-      });
+      toast.error("Recording failed: Could not access microphone");
     }
   };
 

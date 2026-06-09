@@ -1,302 +1,346 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import { useEffect, useState, useRef, useMemo, useCallback } from "react";
+import { useRouter, useParams } from "next/navigation";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../../convex/_generated/api";
+import { useUser } from "@clerk/nextjs";
 import { Id } from "../../../../../convex/_generated/dataModel";
-import { useRef, useState, useEffect, useCallback, useMemo } from "react";
+import { toast } from "sonner";
+import { useMicrophoneSelector } from "@/hooks/useMicrophoneSelector";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  ArrowLeft,
+  Play,
+  Pause,
+  Download,
+  Loader2,
+  FileText,
+  List,
+  AlignLeft,
+  MessageSquare,
+  X,
+  Sparkles,
+  RotateCcw,
+  Mic,
+  ChevronDown,
+  ChevronUp,
+  Trash2,
+  Pencil,
+  Check,
+  Scissors,
+  Volume2,
+  ZoomIn,
+  Maximize2,
+  Minimize2,
+  ZoomOut,
+  Highlighter,
+  FileBarChart,
+} from "lucide-react";
+import { ThemeSwitcher } from "@/components/ThemeSwitcher";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { AudioRecorder } from "@/components/AudioRecorder";
+import { FloatingRecordingIndicator } from "@/components/FloatingRecordingIndicator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { combineAudioFiles } from "@/utils/audioCombiner";
+import { generateClientReportPdf, type ClientReportData } from "@/utils/clientReportPdf";
+import { toPng } from "html-to-image";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
+import { Progress } from "@/components/ui/progress";
+import { Switch } from "@/components/ui/switch";
+import { AnimatedCounter } from "@/components/AnimatedCounter";
+import Sparkline from "@/components/Sparkline";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  ArrowLeft,
-  Play,
-  Pause,
-  MessageSquare,
-  Trash2,
-  Highlighter,
-  Loader2,
-  Clock,
-  X,
-  RefreshCw,
-  Volume2,
-  Check,
-  Pencil,
-  AlignLeft,
-  List,
-  ChevronDown,
-  ChevronUp,
-  RotateCcw,
-  Sparkles,
-  ZoomIn,
-  ZoomOut,
-  FileText,
-} from "lucide-react";
-import { toast } from "sonner";
-import { cn } from "@/lib/utils";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  ResponsiveContainer,
-  Tooltip,
-  ReferenceLine,
-} from "recharts";
 
-// ─── Highlight colors ────────────────────────────────────────────────────────
-const HIGHLIGHT_COLORS = [
-  { name: "yellow", hex: "#fef08a" },
-  { name: "green", hex: "#39ff14" },
-  { name: "orange", hex: "#ff7700" },
-];
+// ── Type definitions matching Convex schema ─────────────────────────────────
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-function formatTime(secs: number): string {
-  if (!isFinite(secs) || secs < 0) return "0:00";
-  const m = Math.floor(secs / 60);
-  const s = Math.floor(secs % 60);
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
+type Sermon = {
+  _id: Id<"sermons">;
+  title?: string | null;
+  fileId?: Id<"_storage">;
+  fileUrl?: string;
+  transcriptionStatus: string;
+  durationSeconds?: number | null;
+};
 
-function formatMs(ms: number): string {
-  return formatTime(ms / 1000);
-}
+type Sentence = {
+  _id: Id<"sermonSentences">;
+  sermonId: Id<"sermons">;
+  startTimeMs: number;
+  endTimeMs: number;
+  sentenceText: string;
+  orderIndex: number;
+};
 
-function formatMsLong(ms: number): string {
-  const total = Math.floor(ms / 1000);
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
+type Comment = {
+  _id: Id<"sermonComments">;
+  userId: string;
+  sermonId: Id<"sermons">;
+  startTimeMs: number;
+  endTimeMs: number;
+  commentText: string;
+  ruleId?: Id<"evaluationRules"> | null;
+  audioUrl?: string | null;
+  createdAt?: number;
+};
 
-// Group sentences into ~60-word paragraphs
-function groupIntoParagraphs<T extends { sentenceText: string }>(sentences: T[]): T[][] {
-  const paragraphs: T[][] = [];
-  let current: T[] = [];
-  let wordCount = 0;
-  const MAX_WORDS = 60;
-  for (const s of sentences) {
-    const words = s.sentenceText.trim().split(/\s+/).length;
-    if (current.length > 0 && wordCount + words > MAX_WORDS) {
-      paragraphs.push(current);
-      current = [s];
-      wordCount = words;
-    } else {
-      current.push(s);
-      wordCount += words;
-    }
-  }
-  if (current.length > 0) paragraphs.push(current);
-  return paragraphs;
-}
+type EvaluationRule = {
+  _id: Id<"evaluationRules">;
+  name: string;
+  description: string;
+  color: string;
+  prompt: string;
+};
 
-// ─── Loading skeleton ──────────────────────────────────────────────────────────
-function AnalyticsSkeleton() {
-  return (
-    <div className="space-y-2 py-2">
-      <Skeleton className="h-4 w-3/4" />
-      <Skeleton className="h-4 w-1/2" />
-      <Skeleton className="h-4 w-2/3" />
-    </div>
-  );
-}
+// ── Convex coach style guide type ───────────────────────────────────────────
+type CoachStyleGuide = {
+  _id: string;
+  userId: string;
+  guideText: string;
+  commentsAnalyzed: number;
+  lastAnalyzedAt?: number | null;
+};
 
-// ─── WPM Sparkline ────────────────────────────────────────────────────────────
-function WpmSparkline({
-  data,
-  currentMs,
-  onSeek,
-}: {
-  data: { wpm: number; startTimeMs: number }[];
-  currentMs?: number;
-  onSeek?: (ms: number) => void;
-}) {
-  if (!data || data.length < 2) return null;
-  const chartData = data.map((d) => ({ wpm: d.wpm, time: d.startTimeMs }));
-  const avg = data.reduce((s, d) => s + d.wpm, 0) / data.length;
-  return (
-    <div className="h-36 w-full mt-2 cursor-pointer">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart
-          data={chartData}
-          margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
-          onClick={(d: unknown) => {
-            const data = d as { activePayload?: Array<{ payload: { time: number } }> };
-            if (data?.activePayload?.[0]?.payload?.time !== undefined && onSeek) {
-              onSeek(data.activePayload[0].payload.time);
-            }
-          }}
-        >
-          <XAxis
-            dataKey="time"
-            type="number"
-            domain={["dataMin", "dataMax"]}
-            tick={{ fontSize: 9 }}
-            tickFormatter={(ms) =>
-              `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`
-            }
-            interval="preserveStartEnd"
-          />
-          <YAxis
-            tick={{ fontSize: 9 }}
-            domain={["auto", "auto"]}
-            width={30}
-          />
-          <Tooltip
-            content={({ active, payload }) => {
-              if (!active || !payload?.length) return null;
-              const wpm = payload[0].value as number;
-              const ms = (payload[0].payload as { time: number }).time;
-              const pctDev = avg > 0 ? ((wpm - avg) / avg) * 100 : 0;
-              const sign = pctDev >= 0 ? "+" : "";
-              return (
-                <div className="bg-popover border rounded-lg px-2 py-1.5 shadow-lg text-xs">
-                  <p className="text-muted-foreground">{formatMs(ms)}</p>
-                  <p className="font-semibold">{wpm} WPM</p>
-                  <p className={pctDev >= 0 ? "text-rose-600" : "text-blue-600"}>
-                    {sign}
-                    {pctDev.toFixed(1)}% from avg
-                  </p>
-                </div>
-              );
-            }}
-          />
-          <ReferenceLine
-            y={Math.round(avg)}
-            stroke="hsl(var(--muted-foreground))"
-            strokeDasharray="5 5"
-            label={{ value: "Avg", position: "right", fontSize: 9 }}
-          />
-          {currentMs !== undefined && currentMs > 0 && (
-            <ReferenceLine
-              x={currentMs}
-              stroke="hsl(var(--destructive))"
-              strokeWidth={2}
-            />
-          )}
-          <Line
-            type="monotone"
-            dataKey="wpm"
-            stroke="hsl(var(--primary))"
-            strokeWidth={2}
-            dot={{ r: 2 }}
-            activeDot={{ r: 4 }}
-          />
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
+// ── Helper: compute confusingPhrases-like shape from Convex data ────────────
+type ConfusingPhrase = {
+  _id: string;
+  phrase: string;
+  severity: string;
+  suggestion: string;
+  sentenceIndex: number;
+  startTimeMs: number;
+};
 
-// ─── Severity badge ────────────────────────────────────────────────────────────
-function SeverityBadge({ severity }: { severity: string }) {
-  const classes =
-    severity === "severe"
-      ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
-      : severity === "moderate"
-      ? "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200"
-      : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200";
-  return <Badge className={classes}>{severity}</Badge>;
-}
+type ScriptureRef = {
+  _id: string;
+  reference: string;
+  context: string;
+  startTimeMs: number;
+  sentenceIndex: number;
+};
 
-// ─── Main Component ───────────────────────────────────────────────────────────
-export default function SermonViewerPage() {
+type MissedQuestion = {
+  _id: string;
+  originalText: string;
+  suggestedQuestion: string;
+  sentenceIndex: number;
+  startTimeMs: number;
+};
+
+type Illustration = {
+  _id: string;
+  type: string;
+  description: string;
+  startSentenceIndex: number;
+  endSentenceIndex: number;
+  startTimeMs: number;
+};
+
+type SermonIntent = {
+  _id: string;
+  know: string;
+  feel: string;
+  doAction: string;
+  emotionalTone: string;
+  headHeartRatio: number;
+};
+
+type Question = {
+  _id: string;
+  questionText: string;
+  isCongregationQuestion: boolean;
+  sentenceIndex: number;
+  startTimeMs: number;
+};
+
+type Silence = {
+  _id: string;
+  startTimeMs: number;
+  endTimeMs: number;
+  durationMs: number;
+};
+
+type FillerWord = {
+  _id: string;
+  word: string;
+  count: number;
+  occurrences: string;
+};
+
+type Highlight = {
+  _id: string;
+  sentenceIndex: number;
+  color: string;
+};
+
+export default function SermonViewer() {
   const params = useParams();
+  const id = params.sermonId as string;
+  const sermonId = id as Id<"sermons">;
   const router = useRouter();
-  const sermonId = params.sermonId as Id<"sermons">;
+  const { user } = useUser();
+  const { audioDevices, selectedDeviceId, setSelectedDeviceId, getSelectedDeviceLabel } = useMicrophoneSelector();
 
   // ── Convex queries ──────────────────────────────────────────────────────────
   const sermon = useQuery(api.sermons.get, { sermonId });
   const rawSentences = useQuery(api.sermons.getSentences, { sermonId }) ?? [];
-  const comments = useQuery(api.sermons.getComments, { sermonId }) ?? [];
-  const highlights = useQuery(api.sermons.getHighlights, { sermonId }) ?? [];
+  const convexComments = useQuery(api.sermons.getComments, { sermonId }) ?? [];
+  const convexHighlights = useQuery(api.sermons.getHighlights, { sermonId }) ?? [];
+  const convexFillerWords = useQuery(api.sermons.getFillerWords, { sermonId }) ?? [];
+  const convexSilences = useQuery(api.sermons.getSilences, { sermonId }) ?? [];
+  const convexScriptureRefs = useQuery(api.sermons.getScriptureRefs, { sermonId }) ?? [];
+  const convexConfusingPhrases = useQuery(api.sermons.getConfusingPhrases, { sermonId }) ?? [];
+  const convexQuestions = useQuery(api.sermons.getQuestions, { sermonId }) ?? [];
+  const convexMissedQuestions = useQuery(api.sermons.getMissedQuestions, { sermonId }) ?? [];
+  const convexIllustrations = useQuery(api.sermons.getIllustrations, { sermonId }) ?? [];
+  const convexIntent = useQuery(api.sermons.getIntent, { sermonId });
+  const convexMetrics = useQuery(api.sermons.getSermonMetrics, { sermonId });
 
-  // Analytics queries
-  const metrics = useQuery(api.sermons.getSermonMetrics, { sermonId });
-  const sentenceMetrics = useQuery(api.sermons.getSentenceMetrics, { sermonId }) ?? [];
-  const fillerWords = useQuery(api.sermons.getFillerWords, { sermonId }) ?? [];
-  const silences = useQuery(api.sermons.getSilences, { sermonId }) ?? [];
-  const scriptureRefs = useQuery(api.sermons.getScriptureRefs, { sermonId }) ?? [];
-  const confusingPhrases = useQuery(api.sermons.getConfusingPhrases, { sermonId }) ?? [];
-  const questions = useQuery(api.sermons.getQuestions, { sermonId }) ?? [];
-  const missedQuestions = useQuery(api.sermons.getMissedQuestions, { sermonId }) ?? [];
-  const illustrations = useQuery(api.sermons.getIllustrations, { sermonId }) ?? [];
-  const intent = useQuery(api.sermons.getIntent, { sermonId });
+  // Audio URL from Convex storage
+  const storageUrl = useQuery(
+    api.sermons.getStorageUrl,
+    sermon?.fileId ? { storageId: sermon.fileId } : "skip"
+  );
 
   // ── Mutations ───────────────────────────────────────────────────────────────
-  const addComment = useMutation(api.sermons.addComment);
-  const deleteComment = useMutation(api.sermons.deleteComment);
+  const addCommentMutation = useMutation(api.sermons.addComment);
+  const deleteCommentMutation = useMutation(api.sermons.deleteComment);
   const toggleHighlightMutation = useMutation(api.sermons.toggleHighlight);
-  const updateTitle = useMutation(api.sermons.updateTitle);
-  const triggerReanalysis = useMutation(api.analytics.triggerReanalysis);
+  const updateTitleMutation = useMutation(api.sermons.updateTitle);
 
   // ── Audio refs & state ──────────────────────────────────────────────────────
   const audioRef = useRef<HTMLAudioElement>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const mediaSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+
+  // Derive sentences sorted by orderIndex
+  const sentences: Sentence[] = useMemo(
+    () => [...rawSentences].sort((a, b) => a.orderIndex - b.orderIndex) as Sentence[],
+    [rawSentences]
+  );
+
+  // Derive comments with ruleId check (Convex has ruleId, no evaluation_rules join)
+  const comments: Comment[] = useMemo(() => convexComments as Comment[], [convexComments]);
+
+  // Highlights map
+  const highlightMap: Record<number, string> = useMemo(() => {
+    const map: Record<number, string> = {};
+    for (const h of convexHighlights as Highlight[]) map[h.sentenceIndex] = h.color;
+    return map;
+  }, [convexHighlights]);
+
+  // Scripture sentence indices (from Convex data)
+  const scriptureRefs = convexScriptureRefs as ScriptureRef[];
+  const confusingPhrases = convexConfusingPhrases as ConfusingPhrase[];
+  const missedQuestionsData = useMemo(() => ({
+    opportunities: (convexMissedQuestions as MissedQuestion[]).map(mq => ({
+      index: mq.sentenceIndex,
+      statement: mq.originalText,
+      suggested_question: mq.suggestedQuestion,
+      reason: undefined as string | undefined,
+    })),
+  }), [convexMissedQuestions]);
+  const intentData = useMemo(() => {
+    const d = convexIntent as SermonIntent | null | undefined;
+    if (!d) return null;
+    return { know: d.know, feel: d.feel, do: d.doAction, summary: d.emotionalTone };
+  }, [convexIntent]);
+  const illustrationData = useMemo(() => {
+    const ills = convexIllustrations as Illustration[];
+    if (ills.length === 0) return null;
+    const breakdown = { stories: 0, humor: 0, illustrations: 0, audience_interactions: 0 };
+    for (const ill of ills) {
+      if (ill.type === "story") breakdown.stories++;
+      else if (ill.type === "humor") breakdown.humor++;
+      else if (ill.type === "crowd_work") breakdown.audience_interactions++;
+      else breakdown.illustrations++;
+    }
+    return {
+      elements: ills.map(ill => ({ type: ill.type, summary: ill.description, excerpt: "" })),
+      total_count: ills.length,
+      illustration_score: convexMetrics?.illustrationScore ?? (ills.length > 0 ? Math.min(10, ills.length * 2) : 0),
+      breakdown,
+    };
+  }, [convexIllustrations, convexMetrics]);
+  const congregationQuestionIndices = useMemo(() => {
+    const qs = convexQuestions as Question[];
+    return new Set(qs.filter(q => q.isCongregationQuestion).map(q => q.sentenceIndex));
+  }, [convexQuestions]);
+
+  // State
+  const [audioUrl, setAudioUrl] = useState<string>("");
+  const audioUrlTimestampRef = useRef<number>(0);
   const [playing, setPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0); // seconds
-  const [duration, setDuration] = useState(0);
-  const [playbackRate, setPlaybackRate] = useState(1);
-  const [volume, setVolume] = useState(1);
-  const [playerCollapsed, setPlayerCollapsed] = useState(false);
-
-  // Waveform canvas
-  const waveformCanvasRef = useRef<HTMLCanvasElement>(null);
-  const [waveformData, setWaveformData] = useState<number[]>([]);
-
-  // ── Title editing ───────────────────────────────────────────────────────────
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [titleInput, setTitleInput] = useState("");
-
-  // ── Comment state ───────────────────────────────────────────────────────────
-  const [selectedRange, setSelectedRange] = useState<{
-    start: number;
-    end: number;
-    sentenceIdx: number;
-  } | null>(null);
-  const [commentText, setCommentText] = useState("");
-  const [savingComment, setSavingComment] = useState(false);
-  const [showCommentBox, setShowCommentBox] = useState(false);
-
-  // ── Highlight state ─────────────────────────────────────────────────────────
-  const [highlightMode, setHighlightMode] = useState(false);
-  const [activeColor, setActiveColor] = useState(HIGHLIGHT_COLORS[0]);
-
-  // ── View mode ───────────────────────────────────────────────────────────────
+  const [currentTime, setCurrentTime] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [viewMode, setViewMode] = useState<"sentence" | "paragraph">("paragraph");
-  const [engagementExpanded, setEngagementExpanded] = useState(false);
-  const [dashboardCollapsed, setDashboardCollapsed] = useState(false);
-
-  // ── Auto scroll ─────────────────────────────────────────────────────────────
-  const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
-  const [userScrolledAway, setUserScrolledAway] = useState(false);
-  const transcriptContainerRef = useRef<HTMLDivElement>(null);
-  const paragraphRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const sentenceRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const isAutoScrollingRef = useRef(false);
-
-  // ── Coach / AI section ──────────────────────────────────────────────────────
+  const [commentDialogOpen, setCommentDialogOpen] = useState(false);
+  const [selectedTimeRange, setSelectedTimeRange] = useState<{ start: number; end: number } | null>(null);
+  const [newComment, setNewComment] = useState("");
+  const [rules, setRules] = useState<EvaluationRule[]>([]);
+  const [evaluationDialogOpen, setEvaluationDialogOpen] = useState(false);
+  const [selectedRuleIds, setSelectedRuleIds] = useState<string[]>([]);
+  const [evaluating, setEvaluating] = useState(false);
+  const [commentType, setCommentType] = useState<"text" | "audio">("audio");
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [combiningAudio, setCombiningAudio] = useState(false);
+  const [combineProgress, setCombineProgress] = useState(0);
+  const [combineStatus, setCombineStatus] = useState("");
+  const [previewMode, setPreviewMode] = useState(false);
+  const [previewAudioUrl, setPreviewAudioUrl] = useState<string>("");
+  const previewAudioRef = useRef<HTMLAudioElement>(null);
+  const [previewPlaying, setPreviewPlaying] = useState(false);
+  const [previewingParagraph, setPreviewingParagraph] = useState<number | null>(null);
+  const [showFastSpeech, setShowFastSpeech] = useState(false);
+  const [showVerbalPauses, setShowVerbalPauses] = useState(false);
+  const [showSlowSpeech, setShowSlowSpeech] = useState(false);
+  const [showVolumeChanges, setShowVolumeChanges] = useState(false);
+  const [showInsiderLanguage, setShowInsiderLanguage] = useState(false);
+  const [showSilentPauses, setShowSilentPauses] = useState(false);
+  const [visibleFillerWords, setVisibleFillerWords] = useState<Set<string>>(new Set());
+  const [visibleInsiderTerms, setVisibleInsiderTerms] = useState<Set<string>>(new Set());
+  const [fastSpeechThreshold, setFastSpeechThreshold] = useState(1.2);
+  const [slowSpeechThreshold, setSlowSpeechThreshold] = useState(0.75);
+  const [volumeChangeThreshold, setVolumeChangeThreshold] = useState(1.0);
+  const [waveformData, setWaveformData] = useState<number[]>([]);
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [summarizing, setSummarizing] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [commentSummary, setCommentSummary] = useState<{
+    summary: string;
+    bulletPoints: string[];
+  } | null>(null);
+  // AI Coach
+  const [coachOpen, setCoachOpen] = useState(false);
   const [coachLoading, setCoachLoading] = useState(false);
+  const [coachApplying, setCoachApplying] = useState(false);
+  const [coachDeleting, setCoachDeleting] = useState(false);
+  const [coachRegenAudio, setCoachRegenAudio] = useState(false);
   const [coachNotes, setCoachNotes] = useState<Array<{
     sentence_index: number;
     category?: string;
@@ -304,271 +348,203 @@ export default function SermonViewerPage() {
     start_time_ms: number;
     end_time_ms: number;
   }> | null>(null);
-  const [coachApplying, setCoachApplying] = useState(false);
-  const [reanalyzing, setReanalyzing] = useState(false);
+  const [coachPreviewLoadingIdx, setCoachPreviewLoadingIdx] = useState<number | null>(null);
+  const [coachPreviewPlayingIdx, setCoachPreviewPlayingIdx] = useState<number | null>(null);
+  const coachPreviewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const coachPreviewCacheRef = useRef<Map<number, string>>(new Map());
 
-  // ── Comment hide state ──────────────────────────────────────────────────────
-  const [hideMyComments, setHideMyComments] = useState(false);
+  // Style guide (from Convex)
+  const [styleGuide, setStyleGuide] = useState<{
+    last_analyzed_at: string | null;
+    comments_analyzed: number;
+  } | null>(null);
+  const [relearning, setRelearning] = useState(false);
 
-  // ── Audio URL ───────────────────────────────────────────────────────────────
-  const storageUrl = useQuery(
-    api.sermons.getStorageUrl,
-    sermon?.fileId ? { storageId: sermon.fileId } : "skip"
-  );
-  const audioUrl = sermon?.fileId ? (storageUrl ?? undefined) : (sermon?.fileUrl ?? undefined);
+  // Loading state managed by sermon query
+  useEffect(() => {
+    if (sermon !== undefined) setLoading(false);
+  }, [sermon]);
 
-  // ── Derived data ────────────────────────────────────────────────────────────
-  const sortedSentences = useMemo(
-    () => [...rawSentences].sort((a, b) => a.orderIndex - b.orderIndex),
-    [rawSentences]
-  );
+  // Auth guard
+  useEffect(() => {
+    if (user === null) router.push("/sign-in");
+  }, [user, router]);
 
-  // Highlight map: sentenceIndex → color hex
-  const highlightMap = useMemo(() => {
-    const map: Record<number, string> = {};
-    for (const h of highlights) map[h.sentenceIndex] = h.color;
-    return map;
-  }, [highlights]);
-
-  // Comments by sentence index
-  const commentsBySentence = useMemo(() => {
-    const map: Record<number, typeof comments> = {};
-    for (const c of comments) {
-      let sent = sortedSentences.findIndex(
-        (s) => s.startTimeMs <= c.startTimeMs && s.endTimeMs > c.startTimeMs
-      );
-      if (sent < 0 && sortedSentences.length > 0) {
-        let minDiff = Infinity;
-        sortedSentences.forEach((s, i) => {
-          const diff = Math.abs(s.startTimeMs - c.startTimeMs);
-          if (diff < minDiff) {
-            minDiff = diff;
-            sent = i;
-          }
-        });
-      }
-      if (sent >= 0) {
-        if (!map[sent]) map[sent] = [];
-        map[sent].push(c);
-      }
+  // Set audio URL from Convex storage or fallback
+  useEffect(() => {
+    if (sermon?.fileId && storageUrl) {
+      setAudioUrl(storageUrl);
+      audioUrlTimestampRef.current = Date.now();
+    } else if (sermon?.fileUrl) {
+      setAudioUrl(sermon.fileUrl);
+      audioUrlTimestampRef.current = Date.now();
     }
-    return map;
-  }, [comments, sortedSentences]);
+  }, [sermon, storageUrl]);
 
-  // Active sentence index
-  const currentMs = currentTime * 1000;
-  const activeSentenceIdx = sortedSentences.findIndex(
-    (s) => s.startTimeMs <= currentMs && s.endTimeMs > currentMs
-  );
-
-  // Paragraph grouping
-  const paragraphs = useMemo(() => groupIntoParagraphs(sortedSentences), [sortedSentences]);
-  const activeParagraphIdx = paragraphs.findIndex((p) => {
-    const first = p[0];
-    const last = p[p.length - 1];
-    return currentMs >= first.startTimeMs && currentMs < last.endTimeMs;
-  });
-
-  // Sentence metrics sorted for WPM chart
-  const sentenceMetricsSorted = useMemo(
-    () => [...sentenceMetrics].sort((a, b) => a.startTimeMs - b.startTimeMs),
-    [sentenceMetrics]
-  );
-
-  // Analytics derived
-  const longSilences = useMemo(() => silences.filter((s) => s.durationMs >= 3000), [silences]);
-  const longestSilence = useMemo(
-    () => longSilences.reduce((max, s) => (s.durationMs > max ? s.durationMs : max), 0),
-    [longSilences]
-  );
-  const severeCount = useMemo(
-    () => confusingPhrases.filter((p) => p.severity === "severe").length,
-    [confusingPhrases]
-  );
-  const moderateCount = useMemo(
-    () => confusingPhrases.filter((p) => p.severity === "moderate").length,
-    [confusingPhrases]
-  );
-  const accessibilityScore = useMemo(
-    () => Math.max(0, Math.min(10, 10 - severeCount * 0.5 - moderateCount * 0.25)),
-    [severeCount, moderateCount]
-  );
-  const illustrationTypes = useMemo(() => {
-    const m: Record<string, number> = {};
-    for (const ill of illustrations) m[ill.type] = (m[ill.type] ?? 0) + 1;
-    return m;
-  }, [illustrations]);
-  const congregationQuestions = useMemo(
-    () => questions.filter((q) => q.isCongregationQuestion),
-    [questions]
-  );
-  const avgWpm = metrics?.wpm ?? null;
-  const wordCount = metrics?.wordCount ?? null;
-  const engagementScore = metrics?.engagementScore ?? null;
-
-  // Time since last comment (in seconds)
-  const timeSinceLastComment = useMemo(() => {
-    const userComments = comments.filter((c) => !c.ruleId);
-    if (userComments.length === 0) return null;
-    const endedComments = userComments.filter((c) => c.endTimeMs <= currentMs);
-    if (endedComments.length === 0) return null;
-    const last = endedComments.reduce((lc, c) =>
-      c.endTimeMs > lc.endTimeMs ? c : lc
-    );
-    return Math.floor((currentMs - last.endTimeMs) / 1000);
-  }, [comments, currentMs]);
-
-  // ── Effects ─────────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (sermon?.title) setTitleInput(sermon.title);
-  }, [sermon?.title]);
-
-  useEffect(() => {
-    if (audioRef.current) audioRef.current.playbackRate = playbackRate;
-  }, [playbackRate]);
-
-  useEffect(() => {
-    if (audioRef.current) audioRef.current.volume = Math.min(1, Math.max(0, volume));
-  }, [volume]);
-
-  // Auto-scroll to active paragraph
-  useEffect(() => {
-    if (!autoScrollEnabled || !playing || viewMode !== "paragraph") return;
-    if (activeParagraphIdx === -1) return;
-    const el = paragraphRefs.current[activeParagraphIdx];
-    if (!el || !transcriptContainerRef.current) return;
-    const container = transcriptContainerRef.current;
-    const containerRect = container.getBoundingClientRect();
-    const elRect = el.getBoundingClientRect();
-    const scrollOffset = elRect.top - containerRect.top + container.scrollTop;
-    const offset = 80;
-    const targetScrollTop = scrollOffset - offset;
-    if (Math.abs(targetScrollTop - container.scrollTop) > 50) {
-      isAutoScrollingRef.current = true;
-      container.scrollTo({ top: targetScrollTop, behavior: "smooth" });
-      setTimeout(() => { isAutoScrollingRef.current = false; }, 500);
-      setUserScrolledAway(false);
-    }
-  }, [activeParagraphIdx, autoScrollEnabled, playing, viewMode]);
-
-  // Auto-scroll sentence view
-  useEffect(() => {
-    if (!autoScrollEnabled || !playing || viewMode !== "sentence") return;
-    if (activeSentenceIdx === -1) return;
-    const el = sentenceRefs.current[activeSentenceIdx];
-    if (!el || !transcriptContainerRef.current) return;
-    const container = transcriptContainerRef.current;
-    const containerRect = container.getBoundingClientRect();
-    const elRect = el.getBoundingClientRect();
-    const isVisible = elRect.top >= containerRect.top && elRect.bottom <= containerRect.bottom;
-    if (!isVisible) {
-      isAutoScrollingRef.current = true;
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      setTimeout(() => { isAutoScrollingRef.current = false; }, 500);
-    }
-  }, [activeSentenceIdx, autoScrollEnabled, playing, viewMode]);
-
-  // Detect user scroll
-  useEffect(() => {
-    const container = transcriptContainerRef.current;
-    if (!container) return;
-    const handleScroll = () => {
-      if (isAutoScrollingRef.current) return;
-      setAutoScrollEnabled(false);
-      setUserScrolledAway(true);
-    };
-    container.addEventListener("scroll", handleScroll);
-    return () => container.removeEventListener("scroll", handleScroll);
-  }, []);
-
-  // Generate waveform when audioUrl available
-  useEffect(() => {
-    if (audioUrl) generateWaveform(audioUrl);
-  }, [audioUrl]);
-
-  // Draw waveform canvas
-  useEffect(() => {
-    const canvas = waveformCanvasRef.current;
-    const durationSecs = sermon?.durationSeconds;
-    if (!canvas || waveformData.length === 0 || !durationSecs) return;
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, rect.width, rect.height);
-    const w = rect.width;
-    const h = rect.height;
-    const playedFraction = currentTime / durationSecs;
-    const barWidth = Math.max(w / waveformData.length, 1.5);
-    const gap = barWidth * 0.3;
-    for (let i = 0; i < waveformData.length; i++) {
-      const x = (i / waveformData.length) * w;
-      const amplitude = waveformData[i];
-      const barH = Math.max(amplitude * h, h * 0.08);
-      const y = (h - barH) / 2;
-      const isPlayed = i / waveformData.length < playedFraction;
-      ctx.fillStyle = isPlayed ? "hsla(0,0%,100%,0.85)" : "hsla(0,0%,100%,0.35)";
-      ctx.beginPath();
-      const radius = Math.min((barWidth - gap) / 2, barH / 2);
-      ctx.roundRect(x, y, Math.max(barWidth - gap, 1), barH, radius);
-      ctx.fill();
-    }
-  }, [waveformData, currentTime, sermon?.durationSeconds]);
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = async (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      if (e.code === "Space") {
-        e.preventDefault();
-        togglePlay();
-      } else if (e.code === "ArrowLeft") {
-        e.preventDefault();
-        if (audioRef.current) audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 5);
-      } else if (e.code === "ArrowRight") {
-        e.preventDefault();
-        if (audioRef.current) audioRef.current.currentTime = Math.min(duration, audioRef.current.currentTime + 5);
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, duration]);
-
-  // ── Waveform generation ─────────────────────────────────────────────────────
-  const generateWaveform = async (url: string) => {
-    try {
-      const response = await fetch(url);
-      const arrayBuffer = await response.arrayBuffer();
-      const audioContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-      const rawData = audioBuffer.getChannelData(0);
-      await audioContext.close();
-      const samples = 1000;
-      const blockSize = Math.floor(rawData.length / samples);
-      const filteredData: number[] = [];
-      for (let i = 0; i < samples; i++) {
-        const start = i * blockSize;
-        let max = 0;
-        for (let j = 0; j < blockSize; j++) {
-          max = Math.max(max, Math.abs(rawData[start + j] ?? 0));
-        }
-        filteredData.push(max);
-      }
-      const maxVal = Math.max(...filteredData) || 1;
-      setWaveformData(filteredData.map((v) => v / maxVal));
-    } catch (err) {
-      console.error("Waveform generation failed:", err);
-    }
+  const handleRelearnStyle = async () => {
+    // TODO: stub — requires ElevenLabs/voice API integration
+    toast.info("Style re-learning requires ElevenLabs configuration (TODO).");
   };
 
-  // ── Audio gain setup ────────────────────────────────────────────────────────
+  const handlePreviewCoachNote = async (idx: number, text: string) => {
+    // If already playing this one, stop
+    if (coachPreviewPlayingIdx === idx && coachPreviewAudioRef.current) {
+      coachPreviewAudioRef.current.pause();
+      coachPreviewAudioRef.current = null;
+      setCoachPreviewPlayingIdx(null);
+      return;
+    }
+    // Stop any other preview
+    if (coachPreviewAudioRef.current) {
+      coachPreviewAudioRef.current.pause();
+      coachPreviewAudioRef.current = null;
+      setCoachPreviewPlayingIdx(null);
+    }
+    // Pause sermon audio if it's playing
+    if (audioRef.current && !audioRef.current.paused) {
+      audioRef.current.pause();
+    }
+    // TODO: stub — requires TTS clone API
+    toast.info("Voice preview requires ElevenLabs voice clone configuration (TODO).");
+  };
+
+  const [viewStart, setViewStart] = useState(0);
+  const [hoverTime, setHoverTime] = useState<number | null>(null);
+  const [hoverPosition, setHoverPosition] = useState<number | null>(null);
+
+  // Scripture refs from Convex
+  const [showScriptureRefs, setShowScriptureRefs] = useState(false);
+  const [showConfusingPhrases, setShowConfusingPhrases] = useState(false);
+  const [showQuestions, setShowQuestions] = useState(false);
+  const [loadingQuestions] = useState(false);
+  const [previewWithComments, setPreviewWithComments] = useState(true);
+  const [playingCommentId, setPlayingCommentId] = useState<string | null>(null);
+  const commentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [commentSignedUrls, setCommentSignedUrls] = useState<Record<string, string>>({});
+  const [playedCommentIds, setPlayedCommentIds] = useState<Set<string>>(new Set());
+  const lastTimeRef = useRef<number>(0);
+  const isPlayingCommentRef = useRef<boolean>(false);
+  const [wpmChartClockActive, setWpmChartClockActive] = useState(false);
+  const [isDraggingTimeline, setIsDraggingTimeline] = useState(false);
+  const dragStartRef = useRef<{ x: number; scrollLeft: number } | null>(null);
+  const waveformCanvasRef = useRef<HTMLCanvasElement>(null);
+  const [volumeChartClockActive, setVolumeChartClockActive] = useState(false);
+  const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
+  const [userScrolledAway, setUserScrolledAway] = useState(false);
+  const transcriptContainerRef = useRef<HTMLDivElement>(null);
+  const paragraphRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const isAutoScrollingRef = useRef(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const [sermonVolume, setSermonVolume] = useState(1.0);
+  const [commentVolume, setCommentVolume] = useState(1.0);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleInput, setTitleInput] = useState("");
+  const [floatingRecording, setFloatingRecording] = useState<{
+    isRecording: boolean;
+    time: number;
+    stopFn: (() => void) | null;
+  }>({ isRecording: false, time: 0, stopFn: null });
+  const [preAcquiredStream, setPreAcquiredStream] = useState<MediaStream | null | undefined>(undefined);
+  const [showAudioEditor, setShowAudioEditor] = useState(false);
+
+  // Loading states (analytics computed server-side by Convex, always available)
+  const [loadingIllustrations] = useState(false);
+  const [loadingEmotional] = useState(false);
+  const [loadingMissedQuestions] = useState(false);
+  const [loadingIntent] = useState(false);
+  const [loadingConfusing] = useState(false);
+  const [loadingScriptures] = useState(false);
+
+  // Emotional data (from Convex metrics)
+  const emotionalData = useMemo(() => {
+    if (!convexMetrics) return null;
+    const score = convexMetrics.emotionalResonanceScore ?? 0;
+    if (score === 0) return null;
+    return {
+      overall_score: score,
+      subscores: {
+        vulnerability: score,
+        affective_language: score,
+        sensory_imagery: score,
+        pathos_moments: score,
+      },
+      affective_percentage: Math.round(score * 10),
+      summary: "",
+      pathos_moments: [] as Array<{ type: string; excerpt: string; note: string }>,
+    };
+  }, [convexMetrics]);
+
+  const [showMissedQuestions, setShowMissedQuestions] = useState(false);
+  const [dashboardCollapsed, setDashboardCollapsed] = useState(false);
+  const [hideAIEvalComments, setHideAIEvalComments] = useState(false);
+  const [hiddenRuleIds, setHiddenRuleIds] = useState<Set<string>>(new Set());
+  const [hideMyComments, setHideMyComments] = useState(false);
+
+  // Registry of all AI-driven overlay toggles
+  const aiOverlayToggles = [
+    { active: showScriptureRefs, clear: () => setShowScriptureRefs(false) },
+    { active: showConfusingPhrases, clear: () => setShowConfusingPhrases(false) },
+    { active: showQuestions, clear: () => setShowQuestions(false) },
+    { active: showMissedQuestions, clear: () => setShowMissedQuestions(false) },
+    {
+      active: !hideAIEvalComments && comments.some(c => !!c.ruleId),
+      clear: () => setHideAIEvalComments(true),
+    },
+  ];
+  const anyAIOverlayActive = aiOverlayToggles.some(t => t.active);
+  const clearAllAIOverlays = () => aiOverlayToggles.forEach(t => t.clear());
+  const [playerCollapsed, setPlayerCollapsed] = useState(false);
+  const [highlights, setHighlights] = useState<Record<number, string>>({});
+  const [highlightMode, setHighlightMode] = useState(false);
+  const [activeHighlightColor, setActiveHighlightColor] = useState('#39ff14');
+  const [transcriptFullscreen, setTranscriptFullscreen] = useState(false);
+
+  const HIGHLIGHT_COLORS = ['#ffff00', '#39ff14', '#ff7700'];
+
+  // Sync highlights from Convex
+  useEffect(() => {
+    const map: Record<number, string> = {};
+    for (const h of convexHighlights as Highlight[]) map[h.sentenceIndex] = h.color;
+    setHighlights(map);
+  }, [convexHighlights]);
+
+  const toggleHighlight = async (sentenceIndex: number) => {
+    if (!user?.id) return;
+    await toggleHighlightMutation({
+      sermonId,
+      sentenceIndex,
+      color: activeHighlightColor,
+    });
+  };
+
+  useEffect(() => {
+    if (audioUrl) {
+      generateWaveform(audioUrl);
+    }
+  }, [audioUrl]);
+
+  // Reset played comments when preview mode is toggled
+  useEffect(() => {
+    if (previewWithComments) {
+      setPlayedCommentIds(new Set());
+      lastTimeRef.current = audioRef.current?.currentTime ? audioRef.current.currentTime * 1000 : 0;
+    }
+  }, [previewWithComments]);
+
+  // Apply playback rate to audio element
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.playbackRate = playbackRate;
+    }
+  }, [playbackRate]);
+
   const ensureAudioGain = useCallback(async (): Promise<boolean> => {
     const audio = audioRef.current;
     if (!audio) return false;
+    const clampedSermonVolume = Number.isFinite(sermonVolume)
+      ? Math.min(2, Math.max(0, sermonVolume))
+      : 1;
     if (!audioContextRef.current || !mediaSourceRef.current || !gainNodeRef.current) {
       try {
         const ctx = new AudioContext();
@@ -579,1435 +555,1782 @@ export default function SermonViewerPage() {
         audioContextRef.current = ctx;
         mediaSourceRef.current = source;
         gainNodeRef.current = gain;
-      } catch {
+      } catch (err) {
+        console.warn("Web Audio boost unavailable, falling back to native audio output:", err);
         return false;
       }
     }
+    if (!audioContextRef.current || !gainNodeRef.current) return false;
     if (audioContextRef.current.state !== "running") {
       try {
         await audioContextRef.current.resume();
-      } catch {
+      } catch (err) {
+        console.error("AudioContext resume failed:", err);
         return false;
       }
     }
-    if (gainNodeRef.current) gainNodeRef.current.gain.value = Math.min(2, Math.max(0, volume));
+    gainNodeRef.current.gain.value = clampedSermonVolume;
     return true;
-  }, [volume]);
+  }, [sermonVolume]);
 
-  // ── Handlers ────────────────────────────────────────────────────────────────
-  const handleTimeUpdate = useCallback(() => {
-    if (audioRef.current) setCurrentTime(audioRef.current.currentTime);
-  }, []);
-
-  const handleLoadedMetadata = useCallback(() => {
-    if (audioRef.current) setDuration(audioRef.current.duration);
-  }, []);
-
-  const seekTo = useCallback((ms: number) => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = ms / 1000;
-      setCurrentTime(ms / 1000);
+  const playSermonAudio = useCallback(async () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const clampedSermonVolume = Number.isFinite(sermonVolume)
+      ? Math.min(2, Math.max(0, sermonVolume))
+      : 1;
+    if (preAcquiredStream?.active) {
+      preAcquiredStream.getTracks().forEach((t) => t.stop());
+      setPreAcquiredStream(undefined);
     }
-  }, []);
-
-  const togglePlay = useCallback(async () => {
-    if (!audioRef.current) return;
-    if (playing) {
-      audioRef.current.pause();
+    const wantsBoost = clampedSermonVolume > 1;
+    audio.muted = false;
+    if (wantsBoost) {
+      const boostReady = await ensureAudioGain();
+      audio.volume = boostReady ? 1 : Math.min(1, clampedSermonVolume);
     } else {
-      if (volume > 1) await ensureAudioGain();
-      await audioRef.current.play().catch((err) => console.error("Play failed:", err));
+      audio.volume = clampedSermonVolume;
     }
-  }, [playing, volume, ensureAudioGain]);
-
-  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const pct = (e.clientX - rect.left) / rect.width;
-    if (audioRef.current && duration) {
-      audioRef.current.currentTime = pct * duration;
-    }
-  };
-
-  const handleSentenceClick = (sentenceIdx: number, startTimeMs: number, endTimeMs: number) => {
-    if (highlightMode) {
-      toggleHighlightMutation({ sermonId, sentenceIndex: sentenceIdx, color: activeColor.hex });
-      return;
-    }
-    seekTo(startTimeMs);
-    setSelectedRange({ start: startTimeMs, end: endTimeMs, sentenceIdx });
-    setShowCommentBox(true);
-  };
-
-  const handleSaveComment = async () => {
-    if (!selectedRange || !commentText.trim()) return;
-    setSavingComment(true);
     try {
-      await addComment({
-        sermonId,
-        commentText: commentText.trim(),
-        startTimeMs: selectedRange.start,
-        endTimeMs: selectedRange.end,
+      await audio.play();
+      setPlaying(true);
+    } catch (err: unknown) {
+      console.error("Failed to play sermon audio:", err);
+      audio.muted = false;
+      audio.volume = Math.min(1, clampedSermonVolume);
+      setPlaying(false);
+    }
+  }, [ensureAudioGain, sermonVolume, preAcquiredStream]);
+
+  // Apply gain value when sermonVolume changes
+  useEffect(() => {
+    const clampedSermonVolume = Number.isFinite(sermonVolume)
+      ? Math.min(2, Math.max(0, sermonVolume))
+      : 1;
+    if (gainNodeRef.current) {
+      gainNodeRef.current.gain.value = clampedSermonVolume;
+    }
+    if (audioRef.current) {
+      audioRef.current.muted = false;
+      audioRef.current.volume = clampedSermonVolume > 1 ? 1 : clampedSermonVolume;
+    }
+  }, [sermonVolume]);
+
+  // Apply comment volume and playback rate to comment audio element
+  useEffect(() => {
+    if (commentAudioRef.current) {
+      commentAudioRef.current.volume = commentVolume;
+      commentAudioRef.current.playbackRate = playbackRate;
+    }
+  }, [commentVolume, playbackRate, playingCommentId]);
+
+  // Auto-scroll transcript to keep active paragraph as second from top
+  useEffect(() => {
+    if (!autoScrollEnabled || !playing || viewMode !== "paragraph") return;
+    const paragraphs = groupIntoParagraphs(sentences);
+    const activeIdx = paragraphs.findIndex(p => isCurrentParagraph(p));
+    if (activeIdx === -1) return;
+    const el = paragraphRefs.current[activeIdx];
+    if (!el || !transcriptContainerRef.current) return;
+    const container = transcriptContainerRef.current;
+    const containerRect = container.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    const scrollOffset = elRect.top - containerRect.top + container.scrollTop;
+    const firstEl = paragraphRefs.current[activeIdx > 0 ? activeIdx - 1 : 0];
+    const offset = firstEl ? firstEl.getBoundingClientRect().height + 16 : 80;
+    const targetScrollTop = scrollOffset - offset;
+    const currentScroll = container.scrollTop;
+    if (Math.abs(targetScrollTop - currentScroll) > 50) {
+      isAutoScrollingRef.current = true;
+      container.scrollTo({ top: targetScrollTop, behavior: "smooth" });
+      setTimeout(() => { isAutoScrollingRef.current = false; }, 500);
+      setUserScrolledAway(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTime, autoScrollEnabled, playing, viewMode, sentences]);
+
+  // Detect user scroll to show "return" button
+  useEffect(() => {
+    const container = transcriptContainerRef.current;
+    if (!container) return;
+    const handleScroll = () => {
+      if (isAutoScrollingRef.current) return;
+      const paragraphs = groupIntoParagraphs(sentences);
+      const activeIdx = paragraphs.findIndex(p => isCurrentParagraph(p));
+      if (activeIdx === -1) return;
+      const el = paragraphRefs.current[activeIdx];
+      if (!el) return;
+      const containerRect = container.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      const isVisible = elRect.top >= containerRect.top && elRect.bottom <= containerRect.bottom;
+      setUserScrolledAway(!isVisible);
+      if (!isVisible) setAutoScrollEnabled(false);
+    };
+    container.addEventListener("scroll", handleScroll);
+    return () => container.removeEventListener("scroll", handleScroll);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sentences, currentTime]);
+
+  // Parallax depth effect for transcript paragraphs
+  useEffect(() => {
+    const container = transcriptContainerRef.current;
+    if (!container) return;
+    const updateDepth = () => {
+      const containerRect = container.getBoundingClientRect();
+      const containerHeight = containerRect.height;
+      paragraphRefs.current.forEach(el => {
+        if (!el) return;
+        const elRect = el.getBoundingClientRect();
+        const elCenter = elRect.top + elRect.height / 2 - containerRect.top;
+        const ratio = elCenter / containerHeight;
+        let depth: string;
+        if (ratio < 0.1 || ratio > 0.9) depth = "far";
+        else if (ratio < 0.25 || ratio > 0.75) depth = "mid";
+        else if (ratio < 0.4 || ratio > 0.6) depth = "near";
+        else depth = "focus";
+        el.setAttribute("data-depth", depth);
       });
-      setCommentText("");
-      setShowCommentBox(false);
-      setSelectedRange(null);
-      toast.success("Comment saved");
-    } catch {
-      toast.error("Failed to save comment");
-    } finally {
-      setSavingComment(false);
+    };
+    updateDepth();
+    container.addEventListener("scroll", updateDepth, { passive: true });
+    return () => container.removeEventListener("scroll", updateDepth);
+  }, [sentences]);
+
+  const scrollToActiveParagraph = () => {
+    const paragraphs = groupIntoParagraphs(sentences);
+    const activeIdx = paragraphs.findIndex(p => isCurrentParagraph(p));
+    if (activeIdx === -1) return;
+    const el = paragraphRefs.current[activeIdx];
+    if (!el || !transcriptContainerRef.current) return;
+    const container = transcriptContainerRef.current;
+    container.scrollIntoView({ behavior: "smooth", block: "start" });
+    const containerRect = container.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    const scrollOffset = elRect.top - containerRect.top + container.scrollTop;
+    const firstEl = paragraphRefs.current[activeIdx > 0 ? activeIdx - 1 : 0];
+    const offset = firstEl ? firstEl.getBoundingClientRect().height + 16 : 80;
+    isAutoScrollingRef.current = true;
+    setTimeout(() => {
+      container.scrollTo({ top: scrollOffset - offset, behavior: "smooth" });
+      setTimeout(() => { isAutoScrollingRef.current = false; }, 500);
+    }, 300);
+    setAutoScrollEnabled(true);
+    setUserScrolledAway(false);
+  };
+
+  // Keyboard shortcuts for audio player
+  useEffect(() => {
+    const handleKeyDown = async (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.code === "Space") {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.target instanceof HTMLButtonElement) {
+          (e.target as HTMLButtonElement).blur();
+        }
+      }
+      const sermonAudio = audioRef.current;
+      const commentAudio = commentAudioRef.current;
+      switch (e.code) {
+        case "Space":
+          e.preventDefault();
+          if (commentDialogOpen) {
+            if (floatingRecording.isRecording && floatingRecording.stopFn) {
+              floatingRecording.stopFn();
+            }
+            return;
+          }
+          if (playingCommentId) {
+            if (commentAudio) {
+              if (commentAudio.paused) commentAudio.play().catch(() => {});
+              else commentAudio.pause();
+            }
+            return;
+          }
+          if (sermonAudio) {
+            if (!sermonAudio.paused) sermonAudio.pause();
+            else await playSermonAudio();
+          }
+          break;
+        case "ArrowLeft":
+          e.preventDefault();
+          if (commentAudio && playingCommentId) {
+            commentAudio.currentTime = Math.max(0, commentAudio.currentTime - 5);
+          } else if (sermonAudio) {
+            sermonAudio.currentTime = Math.max(0, sermonAudio.currentTime - 5);
+          }
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          if (commentAudio && playingCommentId) {
+            commentAudio.currentTime = Math.min(commentAudio.duration || 0, commentAudio.currentTime + 5);
+          } else if (sermonAudio) {
+            sermonAudio.currentTime = Math.min(sermonAudio.duration || 0, sermonAudio.currentTime + 5);
+          }
+          break;
+        case "KeyC":
+          if (!playing && !playingCommentId && audioUrl && currentTime > 0) {
+            e.preventDefault();
+            const currentSentence = sentences.find(
+              s => currentTime >= s.startTimeMs && currentTime <= s.endTimeMs
+            );
+            const timeMs = currentSentence ? currentSentence.startTimeMs : Math.round(currentTime);
+            const endMs = currentSentence ? currentSentence.endTimeMs : Math.round(currentTime) + 1000;
+            openCommentDialog(timeMs, endMs);
+          }
+          break;
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing, playingCommentId, audioUrl, currentTime, sentences, commentDialogOpen, floatingRecording, playSermonAudio]);
+
+  // Calculate time since last comment ended in audio timeline
+  const timeSinceLastCommentInAudio = (() => {
+    const userComments = comments.filter(c => !c.ruleId);
+    if (userComments.length === 0) return null;
+    const currentTimeMs = currentTime;
+    const endedComments = userComments.filter(c => c.endTimeMs <= currentTimeMs);
+    if (endedComments.length === 0) return null;
+    const lastComment = endedComments.reduce((latest, comment) =>
+      comment.endTimeMs > latest.endTimeMs ? comment : latest
+    , endedComments[0]);
+    return Math.floor((currentTimeMs - lastComment.endTimeMs) / 1000);
+  })();
+
+  const generateWaveform = async (url: string) => {
+    try {
+      const response = await fetch(url);
+      const arrayBuffer = await response.arrayBuffer();
+      const audioContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+      const rawData = audioBuffer.getChannelData(0);
+      await audioContext.close();
+      const worker = new Worker(
+        new URL('../../../../utils/waveformWorker.ts', import.meta.url),
+        { type: 'module' }
+      );
+      worker.onmessage = (e) => {
+        if (e.data.type === 'done') setWaveformData(e.data.data);
+        worker.terminate();
+      };
+      worker.onerror = (err) => {
+        console.error("Waveform worker failed:", err);
+        worker.terminate();
+      };
+      worker.postMessage({ rawData, samples: 2000 }, [rawData.buffer]);
+    } catch (error) {
+      console.error("Error generating waveform:", error);
     }
   };
 
-  const handleDeleteComment = async (commentId: Id<"sermonComments">) => {
-    try {
-      await deleteComment({ commentId });
-      toast.success("Comment deleted");
-    } catch {
-      toast.error("Failed to delete comment");
+  // Draw waveform on canvas
+  useEffect(() => {
+    const canvas = waveformCanvasRef.current;
+    if (!canvas || waveformData.length === 0 || !sermon?.durationSeconds) return;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, rect.width, rect.height);
+    const w = rect.width;
+    const h = rect.height;
+    const barCount = waveformData.length;
+    const playedFraction = currentTime / (sermon.durationSeconds * 1000);
+    const theme = document.documentElement.getAttribute('data-theme');
+    let unplayedColor: string;
+    let playedColor: string;
+    if (theme === 'arctic-steel') {
+      unplayedColor = 'hsla(215, 30%, 20%, 0.35)';
+      playedColor = 'hsla(215, 30%, 20%, 0.85)';
+    } else {
+      unplayedColor = 'hsla(0, 0%, 100%, 0.35)';
+      playedColor = 'hsla(0, 0%, 100%, 0.85)';
     }
+    const barWidth = Math.max(w / barCount, 1.5);
+    const gap = barWidth * 0.3;
+    for (let i = 0; i < barCount; i++) {
+      const x = (i / barCount) * w;
+      const amplitude = waveformData[i];
+      const barH = Math.max(amplitude * h, h * 0.08);
+      const y = (h - barH) / 2;
+      const isPlayed = (i / barCount) < playedFraction;
+      ctx.fillStyle = isPlayed ? playedColor : unplayedColor;
+      ctx.beginPath();
+      const radius = Math.min((barWidth - gap) / 2, barH / 2);
+      ctx.roundRect(x, y, Math.max(barWidth - gap, 1), barH, radius);
+      ctx.fill();
+    }
+  }, [waveformData, currentTime, sermon?.durationSeconds, zoomLevel]);
+
+  const paragraphHasPeak = (paragraph: Sentence[]): boolean => {
+    if (!sermon?.durationSeconds || waveformData.length === 0) return false;
+    const firstSentence = paragraph[0];
+    const lastSentence = paragraph[paragraph.length - 1];
+    const startTime = firstSentence.startTimeMs;
+    const endTime = lastSentence.endTimeMs;
+    const totalDuration = sermon.durationSeconds * 1000;
+    const baselineAverage = waveformData.reduce((sum, amp) => sum + amp, 0) / waveformData.length;
+    const startIdx = Math.floor((startTime / totalDuration) * waveformData.length);
+    const endIdx = Math.ceil((endTime / totalDuration) * waveformData.length);
+    const paragraphAmplitudes = waveformData.slice(startIdx, endIdx);
+    const paragraphAverage = paragraphAmplitudes.reduce((sum, amp) => sum + amp, 0) / paragraphAmplitudes.length;
+    return paragraphAverage < (baselineAverage * 0.67);
+  };
+
+  const hasSignificantVolumeChange = (paragraph: Sentence[], threshold: number): 'increase' | 'decrease' | null => {
+    if (!sermon?.durationSeconds || waveformData.length === 0) return null;
+    const firstSentence = paragraph[0];
+    const lastSentence = paragraph[paragraph.length - 1];
+    const startTime = firstSentence.startTimeMs;
+    const endTime = lastSentence.endTimeMs;
+    const totalDuration = sermon.durationSeconds * 1000;
+    const baselineAverage = waveformData.reduce((sum, amp) => sum + amp, 0) / waveformData.length;
+    const startIdx = Math.floor((startTime / totalDuration) * waveformData.length);
+    const endIdx = Math.ceil((endTime / totalDuration) * waveformData.length);
+    const paragraphAmplitudes = waveformData.slice(startIdx, endIdx);
+    const paragraphAverage = paragraphAmplitudes.reduce((sum, amp) => sum + amp, 0) / paragraphAmplitudes.length;
+    const volumeRatio = paragraphAverage / baselineAverage;
+    const sensitivityMultiplier = 1 + (threshold * 0.3);
+    if (volumeRatio > sensitivityMultiplier) return 'increase';
+    if (volumeRatio < (1 / sensitivityMultiplier)) return 'decrease';
+    return null;
+  };
+
+  const calculateSpeechRate = (paragraph: Sentence[]): number => {
+    const firstSentence = paragraph[0];
+    const lastSentence = paragraph[paragraph.length - 1];
+    const durationSeconds = (lastSentence.endTimeMs - firstSentence.startTimeMs) / 1000;
+    const text = paragraph.map(s => s.sentenceText).join(" ");
+    const wordCount = text.split(/\s+/).length;
+    return (wordCount / durationSeconds) * 60;
+  };
+
+  const getAverageSpeechRate = (): number => {
+    if (sentences.length === 0) return 0;
+    const paragraphs = groupIntoParagraphs(sentences);
+    const rates = paragraphs.map(p => calculateSpeechRate(p));
+    return rates.reduce((sum, rate) => sum + rate, 0) / rates.length;
+  };
+
+  const hasFastSpeechRate = (paragraph: Sentence[], threshold: number = 1.5): boolean => {
+    if (sentences.length === 0) return false;
+    const paragraphRate = calculateSpeechRate(paragraph);
+    const averageRate = getAverageSpeechRate();
+    return paragraphRate > averageRate * threshold;
+  };
+
+  const countFastSpeechParagraphs = (threshold: number = 1.2): number => {
+    if (sentences.length === 0) return 0;
+    const paragraphs = groupIntoParagraphs(sentences);
+    const averageRate = getAverageSpeechRate();
+    return paragraphs.filter(p => {
+      const rate = calculateSpeechRate(p);
+      return rate > averageRate * threshold;
+    }).length;
+  };
+
+  const getSpeedVariance = (): { min: number; max: number; stdDev: number; range: number } => {
+    if (sentences.length === 0) return { min: 0, max: 0, stdDev: 0, range: 0 };
+    const paragraphs = groupIntoParagraphs(sentences);
+    const rates = paragraphs.map(p => calculateSpeechRate(p));
+    if (rates.length === 0) return { min: 0, max: 0, stdDev: 0, range: 0 };
+    const min = Math.min(...rates);
+    const max = Math.max(...rates);
+    const avg = rates.reduce((sum, r) => sum + r, 0) / rates.length;
+    const variance = rates.reduce((sum, r) => sum + Math.pow(r - avg, 2), 0) / rates.length;
+    const stdDev = Math.sqrt(variance);
+    return { min, max, stdDev, range: max - min };
+  };
+
+  const countSpeedTransitions = (thresholdPct: number = 15): number => {
+    if (sentences.length === 0) return 0;
+    const avgWpm = getAverageSpeechRate();
+    if (avgWpm === 0) return 0;
+    const paragraphs = groupIntoParagraphs(sentences);
+    const rates = paragraphs.map(p => calculateSpeechRate(p));
+    let transitions = 0;
+    for (let i = 1; i < rates.length; i++) {
+      const pctChange = (Math.abs(rates[i] - rates[i - 1]) / avgWpm) * 100;
+      if (pctChange >= thresholdPct) transitions++;
+    }
+    return transitions;
+  };
+
+  const countSustainedDeviations = (thresholdPct: number = 15, minDurationMs: number = 10000): { faster: number; slower: number; total: number } => {
+    if (sentences.length === 0) return { faster: 0, slower: 0, total: 0 };
+    const avgWpm = getAverageSpeechRate();
+    if (avgWpm === 0) return { faster: 0, slower: 0, total: 0 };
+    const sentenceWpms = sentences.map(s => {
+      const durationSec = (s.endTimeMs - s.startTimeMs) / 1000;
+      if (durationSec <= 0) return avgWpm;
+      const words = s.sentenceText.split(/\s+/).filter(Boolean).length;
+      return (words / durationSec) * 60;
+    });
+    let fasterCount = 0;
+    let slowerCount = 0;
+    let runStartMs: number | null = null;
+    let runDirection: 'faster' | 'slower' | null = null;
+    for (let i = 0; i < sentences.length; i++) {
+      const diff = sentenceWpms[i] - avgWpm;
+      const pctDev = (Math.abs(diff) / avgWpm) * 100;
+      const dir: 'faster' | 'slower' = diff >= 0 ? 'faster' : 'slower';
+      if (pctDev >= thresholdPct && (runDirection === null || dir === runDirection)) {
+        if (runStartMs === null) { runStartMs = sentences[i].startTimeMs; runDirection = dir; }
+      } else {
+        if (runStartMs !== null) {
+          const runEndMs = sentences[i - 1].endTimeMs;
+          if (runEndMs - runStartMs >= minDurationMs) {
+            if (runDirection === 'faster') fasterCount++;
+            else slowerCount++;
+          }
+          runStartMs = null;
+          runDirection = null;
+        }
+        if (pctDev >= thresholdPct) { runStartMs = sentences[i].startTimeMs; runDirection = dir; }
+      }
+    }
+    if (runStartMs !== null) {
+      const runEndMs = sentences[sentences.length - 1].endTimeMs;
+      if (runEndMs - runStartMs >= minDurationMs) {
+        if (runDirection === 'faster') fasterCount++;
+        else slowerCount++;
+      }
+    }
+    return { faster: fasterCount, slower: slowerCount, total: fasterCount + slowerCount };
+  };
+
+  const getWpmTimelineData = (): { time: number; wpm: number; timeLabel: string }[] => {
+    if (sentences.length === 0) return [];
+    const paragraphs = groupIntoParagraphs(sentences);
+    return paragraphs.map((p) => {
+      const startMs = p[0].startTimeMs;
+      const minutes = Math.floor(startMs / 60000);
+      const seconds = Math.floor((startMs % 60000) / 1000);
+      return {
+        time: startMs,
+        wpm: Math.round(calculateSpeechRate(p)),
+        timeLabel: `${minutes}:${String(seconds).padStart(2, '0')}`
+      };
+    });
+  };
+
+  const getVolumeTimelineData = (): { time: number; volume: number; timeLabel: string }[] => {
+    if (sentences.length === 0 || !sermon?.durationSeconds || waveformData.length === 0) return [];
+    const paragraphs = groupIntoParagraphs(sentences);
+    const totalDuration = sermon.durationSeconds * 1000;
+    const baselineAverage = waveformData.reduce((sum, amp) => sum + amp, 0) / waveformData.length;
+    return paragraphs.map((p) => {
+      const startMs = p[0].startTimeMs;
+      const endMs = p[p.length - 1].endTimeMs;
+      const minutes = Math.floor(startMs / 60000);
+      const seconds = Math.floor((startMs % 60000) / 1000);
+      const startIdx = Math.floor((startMs / totalDuration) * waveformData.length);
+      const endIdx = Math.ceil((endMs / totalDuration) * waveformData.length);
+      const paragraphData = waveformData.slice(startIdx, endIdx);
+      if (paragraphData.length === 0) {
+        return { time: startMs, volume: 100, timeLabel: `${minutes}:${String(seconds).padStart(2, '0')}` };
+      }
+      const paragraphAverage = paragraphData.reduce((sum, amp) => sum + amp, 0) / paragraphData.length;
+      const volumePercent = Math.round((paragraphAverage / baselineAverage) * 100);
+      return { time: startMs, volume: volumePercent, timeLabel: `${minutes}:${String(seconds).padStart(2, '0')}` };
+    });
+  };
+
+  const countVerbalPauses = (): number => {
+    const fillerWords = {
+      single: ['uh', 'um', 'like', 'so', 'well', 'okay', 'right', 'actually', 'basically',
+               'literally', 'honestly', 'seriously', 'anyway', 'just', 'really', 'maybe',
+               'perhaps', 'possibly', 'hmm', 'er', 'ah', 'oh'],
+      phrases: ['you know', 'i mean', 'sort of', 'kind of', 'you know what i mean',
+                'the thing is', 'at the end of the day', 'in a sense', 'to be honest',
+                'if you will', 'so yeah', 'well you see', 'i guess', 'i suppose',
+                'its like', 'i was gonna say', 'i think', 'i feel like', 'im not sure but',
+                'uh-huh', 'mm-hmm']
+    };
+    let pauseCount = 0;
+    sentences.forEach(sentence => {
+      const text = sentence.sentenceText.toLowerCase();
+      fillerWords.phrases.forEach(filler => {
+        const regex = new RegExp(`\\b${filler.replace(/\s+/g, '\\s+')}\\b`, 'gi');
+        const matches = text.match(regex);
+        if (matches) pauseCount += matches.length;
+      });
+      fillerWords.single.forEach(filler => {
+        const regex = new RegExp(`\\b${filler}\\b`, 'gi');
+        const matches = text.match(regex);
+        if (matches) pauseCount += matches.length;
+      });
+    });
+    return pauseCount;
   };
 
   const handleSaveTitle = async () => {
     if (!sermon) return;
     try {
-      await updateTitle({ sermonId, title: titleInput.trim() || "Untitled Sermon" });
-      setEditingTitle(false);
-      toast.success("Title updated");
-    } catch {
-      toast.error("Failed to update title");
-    }
-  };
-
-  const handleReanalyze = async () => {
-    setReanalyzing(true);
-    try {
-      await triggerReanalysis({ sermonId });
-      toast.success("Re-analysis started — results will appear shortly");
-    } catch {
-      toast.error("Failed to start re-analysis");
+      await updateTitleMutation({ sermonId, title: titleInput.trim() || "" });
+      toast.success("Title updated", { description: "Sermon title has been saved" });
+    } catch (error: unknown) {
+      toast.error("Error", { description: "Failed to update title" });
     } finally {
-      setReanalyzing(false);
+      setEditingTitle(false);
     }
   };
 
-  const scrollToActive = () => {
-    if (viewMode === "paragraph") {
-      if (activeParagraphIdx === -1) return;
-      const el = paragraphRefs.current[activeParagraphIdx];
-      if (!el || !transcriptContainerRef.current) return;
-      const container = transcriptContainerRef.current;
-      isAutoScrollingRef.current = true;
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      setTimeout(() => { isAutoScrollingRef.current = false; }, 500);
-    } else {
-      if (activeSentenceIdx === -1) return;
-      const el = sentenceRefs.current[activeSentenceIdx];
-      if (el) {
-        isAutoScrollingRef.current = true;
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-        setTimeout(() => { isAutoScrollingRef.current = false; }, 500);
+  const getTopFillerWords = (): { word: string; count: number; color: string }[] => {
+    const fillerWords = {
+      single: ['uh', 'um', 'like', 'so', 'well', 'okay', 'right', 'actually', 'basically',
+               'literally', 'honestly', 'seriously', 'anyway', 'just', 'really', 'maybe',
+               'perhaps', 'possibly', 'hmm', 'er', 'ah', 'oh'],
+      phrases: ['you know', 'i mean', 'sort of', 'kind of', 'you know what i mean',
+                'the thing is', 'at the end of the day', 'in a sense', 'to be honest',
+                'if you will', 'so yeah', 'well you see', 'i guess', 'i suppose',
+                'its like', 'i was gonna say', 'i think', 'i feel like', 'im not sure but',
+                'uh-huh', 'mm-hmm']
+    };
+    const colors = ['#f97316', '#fb923c', '#fdba74'];
+    const wordCounts: { [key: string]: number } = {};
+    sentences.forEach(sentence => {
+      const text = sentence.sentenceText.toLowerCase();
+      fillerWords.phrases.forEach(filler => {
+        const regex = new RegExp(`\\b${filler.replace(/\s+/g, '\\s+')}\\b`, 'gi');
+        const matches = text.match(regex);
+        if (matches) wordCounts[filler] = (wordCounts[filler] || 0) + matches.length;
+      });
+      fillerWords.single.forEach(filler => {
+        const regex = new RegExp(`\\b${filler}\\b`, 'gi');
+        const matches = text.match(regex);
+        if (matches) wordCounts[filler] = (wordCounts[filler] || 0) + matches.length;
+      });
+    });
+    return Object.entries(wordCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map((entry, idx) => ({ word: entry[0], count: entry[1], color: colors[idx] }));
+  };
+
+  const getAllFillerWords = (): { word: string; count: number }[] => {
+    const fillerWords = {
+      single: ['uh', 'um', 'like', 'so', 'well', 'okay', 'right', 'actually', 'basically',
+               'literally', 'honestly', 'seriously', 'anyway', 'just', 'really', 'maybe',
+               'perhaps', 'possibly', 'hmm', 'er', 'ah', 'oh'],
+      phrases: ['you know', 'i mean', 'sort of', 'kind of', 'you know what i mean',
+                'the thing is', 'at the end of the day', 'in a sense', 'to be honest',
+                'if you will', 'so yeah', 'well you see', 'i guess', 'i suppose',
+                'its like', 'i was gonna say', 'i think', 'i feel like', 'im not sure but',
+                'uh-huh', 'mm-hmm']
+    };
+    const wordCounts: { [key: string]: number } = {};
+    sentences.forEach(sentence => {
+      const text = sentence.sentenceText.toLowerCase();
+      fillerWords.phrases.forEach(filler => {
+        const regex = new RegExp(`\\b${filler.replace(/\s+/g, '\\s+')}\\b`, 'gi');
+        const matches = text.match(regex);
+        if (matches) wordCounts[filler] = (wordCounts[filler] || 0) + matches.length;
+      });
+      fillerWords.single.forEach(filler => {
+        const regex = new RegExp(`\\b${filler}\\b`, 'gi');
+        const matches = text.match(regex);
+        if (matches) wordCounts[filler] = (wordCounts[filler] || 0) + matches.length;
+      });
+    });
+    return Object.entries(wordCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([word, count]) => ({ word, count }));
+  };
+
+  const getFillerWordTimestamps = (fillerWord: string): { start: number; end: number }[] => {
+    const timestamps: { start: number; end: number }[] = [];
+    sentences.forEach(sentence => {
+      const text = sentence.sentenceText.toLowerCase();
+      const regex = new RegExp(`\\b${fillerWord}\\b`, 'gi');
+      if (regex.test(text)) {
+        timestamps.push({ start: sentence.startTimeMs, end: sentence.endTimeMs });
+      }
+    });
+    return timestamps;
+  };
+
+  const toggleFillerWord = (word: string) => {
+    const newSet = new Set(visibleFillerWords);
+    if (newSet.has(word)) newSet.delete(word);
+    else newSet.add(word);
+    setVisibleFillerWords(newSet);
+  };
+
+  const countSilentPauses = (minGapMs: number = 3000): number => getSilentPauseTimestamps(minGapMs).length;
+
+  const getSilentPauseTimestamps = (minGapMs: number = 3000): { start: number; end: number; durationMs: number }[] => {
+    if (waveformData.length === 0 || !sermon?.durationSeconds) return [];
+    const totalDurationMs = sermon.durationSeconds * 1000;
+    const msPerSample = totalDurationMs / waveformData.length;
+    const silenceThreshold = 0.05;
+    const pauses: { start: number; end: number; durationMs: number }[] = [];
+    let silenceStart: number | null = null;
+    for (let i = 0; i < waveformData.length; i++) {
+      const isSilent = waveformData[i] < silenceThreshold;
+      if (isSilent && silenceStart === null) {
+        silenceStart = i * msPerSample;
+      } else if (!isSilent && silenceStart !== null) {
+        const silenceEnd = i * msPerSample;
+        const duration = silenceEnd - silenceStart;
+        if (duration >= minGapMs) pauses.push({ start: silenceStart, end: silenceEnd, durationMs: duration });
+        silenceStart = null;
       }
     }
-    setAutoScrollEnabled(true);
-    setUserScrolledAway(false);
+    return pauses;
   };
 
-  // ── AI Coach ────────────────────────────────────────────────────────────────
-  const handleGenerateCoachNotes = async () => {
-    if (sortedSentences.length === 0) return;
-    setCoachLoading(true);
-    try {
-      // Build a simple prompt summary for Bert's notes
-      const transcriptSample = sortedSentences
-        .slice(0, 80)
-        .map((s, i) => `[${i}] ${s.sentenceText}`)
-        .join("\n");
+  const countInsiderLanguage = (): number => {
+    const insiderTerms = {
+      single: ['sanctification', 'justification', 'redemption', 'atonement', 'repentance',
+               'trinity', 'gospel', 'salvation', 'saved', 'resurrection', 'discipleship',
+               'covenant', 'righteousness', 'idolatry', 'pharisee', 'sadducee', 'propitiation',
+               'disciple', 'apostle', 'shepherding', 'iniquity', 'transgression', 'missional',
+               'elders', 'deacons', 'liturgy', 'narthex', 'vestibule', 'sanctuary', 'anointed',
+               'revival', 'holiness', 'calvinist', 'arminian', 'eucharist', 'apologetics',
+               'legalism', 'benediction', 'baptism'],
+      phrases: ['quiet time', 'devotional time', 'prayer warrior', 'love offering', 'fellowship',
+                'covered by the blood', 'hedge of protection', 'being led', 'i feel led',
+                'doing life together', 'on fire for god', 'being called', 'baby christian',
+                'mature christian', 'servant leadership', 'missional living', 'the church',
+                'accountability partner', 'small group', 'community group', 'life group',
+                'spiritual disciplines', 'worship time', 'church home', 'church family',
+                'church plant', 'doing ministry', 'sin nature', 'spiritual gifts',
+                'spiritual warfare', 'holy spirit', 'the spirit', 'born again', 'new birth',
+                'altar call', "the lord's supper", 'passing the plate', 'worship leader',
+                'sermon series', 'asking jesus into your heart', 'personal relationship with jesus',
+                'lost people', 'the lost', 'reaching the unreached', 'the great commission',
+                'spiritual attack', 'prayer covering', 'kingdom work', 'called to ministry',
+                'faith step', 'prosperity gospel', 'fruit of the spirit', 'armor of god',
+                'kingdom of heaven', 'kingdom of god', 'lamb of god', 'ministry team',
+                'global partners', 'pastoral care', 'shepherding team', 'church polity',
+                'praise and worship', 'praise & worship', 'worship experience', 'spirit moving',
+                'worship night', 'vacation bible school', 'vbs', 'testimony', 'purity culture',
+                'accountability group', 'contemporary christian music', 'ccm', 'we as christians']
+    };
+    let termCount = 0;
+    sentences.forEach(sentence => {
+      const text = sentence.sentenceText.toLowerCase();
+      insiderTerms.phrases.forEach(term => {
+        const regex = new RegExp(`\\b${term.replace(/\s+/g, '\\s+').replace(/'/g, "\\'")}\\b`, 'gi');
+        const matches = text.match(regex);
+        if (matches) termCount += matches.length;
+      });
+      insiderTerms.single.forEach(term => {
+        const regex = new RegExp(`\\b${term}\\b`, 'gi');
+        const matches = text.match(regex);
+        if (matches) termCount += matches.length;
+      });
+    });
+    return termCount;
+  };
 
-      // We call Anthropic via the Convex action if one exists, else show a note
-      toast.info("AI Coach requires an Anthropic API key to be configured in Convex environment variables (ANTHROPIC_API_KEY). Re-run analysis to generate analytics first.");
-      setCoachNotes([]);
-    } catch (err: unknown) {
-      toast.error((err as Error).message || "Could not generate coach notes");
-    } finally {
-      setCoachLoading(false);
+  const getTopInsiderTerms = (): { word: string; count: number; color: string }[] => {
+    const insiderTerms = {
+      single: ['sanctification', 'justification', 'redemption', 'atonement', 'repentance',
+               'trinity', 'gospel', 'salvation', 'saved', 'resurrection', 'discipleship',
+               'covenant', 'righteousness', 'idolatry', 'pharisee', 'sadducee', 'propitiation',
+               'disciple', 'apostle', 'shepherding', 'iniquity', 'transgression', 'missional',
+               'elders', 'deacons', 'liturgy', 'narthex', 'vestibule', 'sanctuary', 'anointed',
+               'revival', 'holiness', 'calvinist', 'arminian', 'eucharist', 'apologetics',
+               'legalism', 'benediction', 'baptism'],
+      phrases: ['quiet time', 'devotional time', 'prayer warrior', 'love offering', 'fellowship',
+                'covered by the blood', 'hedge of protection', 'being led', 'i feel led',
+                'doing life together', 'on fire for god', 'being called', 'baby christian',
+                'mature christian', 'servant leadership', 'missional living', 'the church',
+                'accountability partner', 'small group', 'community group', 'life group',
+                'spiritual disciplines', 'worship time', 'church home', 'church family',
+                'church plant', 'doing ministry', 'sin nature', 'spiritual gifts',
+                'spiritual warfare', 'holy spirit', 'the spirit', 'born again', 'new birth',
+                'altar call', "the lord's supper", 'passing the plate', 'worship leader',
+                'sermon series', 'asking jesus into your heart', 'personal relationship with jesus',
+                'lost people', 'the lost', 'reaching the unreached', 'the great commission',
+                'spiritual attack', 'prayer covering', 'kingdom work', 'called to ministry',
+                'faith step', 'prosperity gospel', 'fruit of the spirit', 'armor of god',
+                'kingdom of heaven', 'kingdom of god', 'lamb of god', 'ministry team',
+                'global partners', 'pastoral care', 'shepherding team', 'church polity',
+                'praise and worship', 'praise & worship', 'worship experience', 'spirit moving',
+                'worship night', 'vacation bible school', 'vbs', 'testimony', 'purity culture',
+                'accountability group', 'contemporary christian music', 'ccm', 'we as christians']
+    };
+    const colors = ['#6366f1', '#818cf8', '#a5b4fc'];
+    const termCounts: { [key: string]: number } = {};
+    sentences.forEach(sentence => {
+      const text = sentence.sentenceText.toLowerCase();
+      insiderTerms.phrases.forEach(term => {
+        const regex = new RegExp(`\\b${term.replace(/\s+/g, '\\s+').replace(/'/g, "\\'")}\\b`, 'gi');
+        const matches = text.match(regex);
+        if (matches) termCounts[term] = (termCounts[term] || 0) + matches.length;
+      });
+      insiderTerms.single.forEach(term => {
+        const regex = new RegExp(`\\b${term}\\b`, 'gi');
+        const matches = text.match(regex);
+        if (matches) termCounts[term] = (termCounts[term] || 0) + matches.length;
+      });
+    });
+    return Object.entries(termCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map((entry, idx) => ({ word: entry[0], count: entry[1], color: colors[idx] }));
+  };
+
+  const getAllInsiderTerms = (): { word: string; count: number }[] => {
+    const insiderTerms = {
+      single: ['sanctification', 'justification', 'redemption', 'atonement', 'repentance',
+               'trinity', 'gospel', 'salvation', 'saved', 'resurrection', 'discipleship',
+               'covenant', 'righteousness', 'idolatry', 'pharisee', 'sadducee', 'propitiation',
+               'disciple', 'apostle', 'shepherding', 'iniquity', 'transgression', 'missional',
+               'elders', 'deacons', 'liturgy', 'narthex', 'vestibule', 'sanctuary', 'anointed',
+               'revival', 'holiness', 'calvinist', 'arminian', 'eucharist', 'apologetics',
+               'legalism', 'benediction', 'baptism'],
+      phrases: ['quiet time', 'devotional time', 'prayer warrior', 'love offering', 'fellowship',
+                'covered by the blood', 'hedge of protection', 'being led', 'i feel led',
+                'doing life together', 'on fire for god', 'being called', 'baby christian',
+                'mature christian', 'servant leadership', 'missional living', 'the church',
+                'accountability partner', 'small group', 'community group', 'life group',
+                'spiritual disciplines', 'worship time', 'church home', 'church family',
+                'church plant', 'doing ministry', 'sin nature', 'spiritual gifts',
+                'spiritual warfare', 'holy spirit', 'the spirit', 'born again', 'new birth',
+                'altar call', "the lord's supper", 'passing the plate', 'worship leader',
+                'sermon series', 'asking jesus into your heart', 'personal relationship with jesus',
+                'lost people', 'the lost', 'reaching the unreached', 'the great commission',
+                'spiritual attack', 'prayer covering', 'kingdom work', 'called to ministry',
+                'faith step', 'prosperity gospel', 'fruit of the spirit', 'armor of god',
+                'kingdom of heaven', 'kingdom of god', 'lamb of god', 'ministry team',
+                'global partners', 'pastoral care', 'shepherding team', 'church polity',
+                'praise and worship', 'praise & worship', 'worship experience', 'spirit moving',
+                'worship night', 'vacation bible school', 'vbs', 'testimony', 'purity culture',
+                'accountability group', 'contemporary christian music', 'ccm', 'we as christians']
+    };
+    const termCounts: { [key: string]: number } = {};
+    sentences.forEach(sentence => {
+      const text = sentence.sentenceText.toLowerCase();
+      insiderTerms.phrases.forEach(term => {
+        const regex = new RegExp(`\\b${term.replace(/\s+/g, '\\s+').replace(/'/g, "\\'")}\\b`, 'gi');
+        const matches = text.match(regex);
+        if (matches) termCounts[term] = (termCounts[term] || 0) + matches.length;
+      });
+      insiderTerms.single.forEach(term => {
+        const regex = new RegExp(`\\b${term}\\b`, 'gi');
+        const matches = text.match(regex);
+        if (matches) termCounts[term] = (termCounts[term] || 0) + matches.length;
+      });
+    });
+    return Object.entries(termCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([word, count]) => ({ word, count }));
+  };
+
+  const getInsiderTermTimestamps = (term: string): { start: number; end: number }[] => {
+    const timestamps: { start: number; end: number }[] = [];
+    sentences.forEach(sentence => {
+      const text = sentence.sentenceText.toLowerCase();
+      const regex = new RegExp(`\\b${term.replace(/\s+/g, '\\s+').replace(/'/g, "\\'")}\\b`, 'gi');
+      if (regex.test(text)) {
+        timestamps.push({ start: sentence.startTimeMs, end: sentence.endTimeMs });
+      }
+    });
+    return timestamps;
+  };
+
+  const toggleInsiderTerm = (term: string) => {
+    const newSet = new Set(visibleInsiderTerms);
+    if (newSet.has(term)) newSet.delete(term);
+    else newSet.add(term);
+    setVisibleInsiderTerms(newSet);
+  };
+
+  const getRepeatedPhrases = (minCount: number = 3): { word: string; count: number }[] => {
+    const stopWords = new Set([
+      'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with',
+      'by', 'from', 'is', 'it', 'its', 'are', 'was', 'were', 'be', 'been', 'being',
+      'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should',
+      'may', 'might', 'shall', 'can', 'need', 'i', 'me', 'my',
+      'we', 'us', 'our', 'you', 'your', 'he', 'him', 'his', 'she', 'her', 'they', 'them',
+      'their', 'what', 'which', 'who', 'this', 'that', 'these', 'those', 'am',
+      'not', 'no', 'as', 'if', 'then', 'than', 'so', 'just',
+      't', 's', 'd', 'm', 'll', 've', 're',
+    ]);
+    const allWords: string[] = [];
+    sentences.forEach(sentence => {
+      const words = sentence.sentenceText.toLowerCase().replace(/[^a-z'\s-]/g, '').split(/\s+/).filter(w => w.length > 0);
+      words.forEach(w => {
+        const cleaned = w.replace(/^'+|'+$/g, '');
+        if (cleaned.length > 1) allWords.push(cleaned);
+      });
+    });
+    const phraseCounts: Record<string, number> = {};
+    for (let n = 2; n <= 4; n++) {
+      for (let i = 0; i <= allWords.length - n; i++) {
+        const phrase = allWords.slice(i, i + n);
+        const meaningfulWords = phrase.filter(w => !stopWords.has(w));
+        if (meaningfulWords.length < 1) continue;
+        if (n === 2 && stopWords.has(phrase[0]) && stopWords.has(phrase[1])) continue;
+        const key = phrase.join(' ');
+        phraseCounts[key] = (phraseCounts[key] || 0) + 1;
+      }
+    }
+    const entries = Object.entries(phraseCounts)
+      .filter(([, count]) => count >= minCount)
+      .sort((a, b) => b[1] - a[1]);
+    const filtered: [string, number][] = [];
+    for (const [phrase, count] of entries) {
+      const isRedundant = filtered.some(([longer, longerCount]) =>
+        longer.length > phrase.length && longer.includes(phrase) && longerCount >= count
+      );
+      if (!isRedundant) filtered.push([phrase, count]);
+    }
+    return filtered.map(([word, count]) => ({ word, count }));
+  };
+
+  // ===== ENGAGEMENT SCORING FUNCTIONS =====
+
+  const scaleScore = (value: number, low: number, mid: number, high: number): number => {
+    let score: number;
+    if (value <= low) return 1;
+    if (value >= high) return 10;
+    if (value <= mid) score = 1 + ((value - low) / (mid - low)) * 4;
+    else score = 5 + ((value - mid) / (high - mid)) * 5;
+    return Math.round(Math.min(10, Math.max(1, score)));
+  };
+
+  const getPaceDynamicsScore = (): number => {
+    if (sentences.length === 0) return 5;
+    const avgWpm = getAverageSpeechRate();
+    if (avgWpm === 0) return 5;
+    const deviations25 = countSustainedDeviations(25);
+    const deviations35 = countSustainedDeviations(35);
+    const deviations45 = countSustainedDeviations(45);
+    const lastSentence = sentences[sentences.length - 1];
+    const durationMinutes = lastSentence.endTimeMs / 60000;
+    if (durationMinutes <= 0) return 5;
+    const targetDeviations = durationMinutes / 5;
+    const freqRatio = targetDeviations > 0 ? Math.min(1, deviations25.total / targetDeviations) : 0;
+    const frequencyScore = 1 + freqRatio * 9;
+    let magnitudeScore = 1;
+    if (deviations25.total > 0) {
+      const ratio35 = deviations35.total / deviations25.total;
+      const ratio45 = deviations45.total / deviations25.total;
+      const mag35 = Math.min(1, ratio35 / 0.30);
+      const mag45 = Math.min(1, ratio45 / 0.10);
+      const magRatio = mag35 * 0.6 + mag45 * 0.4;
+      magnitudeScore = 1 + magRatio * 9;
+    }
+    let varietyScore = 1;
+    if (deviations25.total > 0) {
+      const fasterFrac = deviations25.faster / deviations25.total;
+      const balance = 1 - Math.abs(0.5 - fasterFrac) * 2;
+      varietyScore = 1 + balance * 9;
+    }
+    const combined = frequencyScore * 0.4 + magnitudeScore * 0.3 + varietyScore * 0.3;
+    return Math.round(Math.max(1, Math.min(10, combined)));
+  };
+
+  const getVolumeDynamicsScore = (): number => {
+    if (sentences.length === 0 || waveformData.length === 0) return 5;
+    if (!sermon?.durationSeconds) return 5;
+    const deviations25 = countSustainedVolumeDeviations(25);
+    const deviations35 = countSustainedVolumeDeviations(35);
+    const deviations45 = countSustainedVolumeDeviations(45);
+    const lastSentence = sentences[sentences.length - 1];
+    const durationMinutes = lastSentence.endTimeMs / 60000;
+    if (durationMinutes <= 0) return 5;
+    const targetDeviations = durationMinutes / 5;
+    const freqRatio = targetDeviations > 0 ? Math.min(1, deviations25.total / targetDeviations) : 0;
+    const frequencyScore = 1 + freqRatio * 9;
+    let magnitudeScore = 1;
+    if (deviations25.total > 0) {
+      const ratio35 = deviations35.total / deviations25.total;
+      const ratio45 = deviations45.total / deviations25.total;
+      const mag35 = Math.min(1, ratio35 / 0.30);
+      const mag45 = Math.min(1, ratio45 / 0.10);
+      const magRatio = mag35 * 0.6 + mag45 * 0.4;
+      magnitudeScore = 1 + magRatio * 9;
+    }
+    let varietyScore = 1;
+    if (deviations25.total > 0) {
+      const louderFrac = deviations25.louder / deviations25.total;
+      const balance = 1 - Math.abs(0.5 - louderFrac) * 2;
+      varietyScore = 1 + balance * 9;
+    }
+    const combined = frequencyScore * 0.4 + magnitudeScore * 0.3 + varietyScore * 0.3;
+    return Math.round(Math.max(1, Math.min(10, combined)));
+  };
+
+  const getUseOfSilenceScore = (): number => {
+    if (sentences.length < 2) return 5;
+    const pauseCount = countSilentPauses(3000);
+    return Math.max(1, Math.min(10, pauseCount));
+  };
+
+  const getSentenceVarietyScore = (): number => {
+    if (sentences.length < 3) return 5;
+    const lengths = sentences.map(s => s.sentenceText.split(/\s+/).length);
+    const avg = lengths.reduce((a, b) => a + b, 0) / lengths.length;
+    const stdDev = Math.sqrt(lengths.reduce((sum, l) => sum + Math.pow(l - avg, 2), 0) / lengths.length);
+    const cv = stdDev / avg;
+    return scaleScore(cv, 0.45, 0.75, 1.1);
+  };
+
+  const getIllustrationScore = (): number => {
+    if (!illustrationData) return 0;
+    return illustrationData.illustration_score;
+  };
+
+  const getEmotionalResonanceScore = (): number => {
+    if (!emotionalData) return 0;
+    return emotionalData.overall_score;
+  };
+
+  const getEngagementScore = (): {
+    total: number;
+    hasPendingAiMetrics: boolean;
+    subscores: { label: string; score: number; icon: string; loaded: boolean }[];
+  } => {
+    const paceDynamics = getPaceDynamicsScore();
+    const volumeDynamics = getVolumeDynamicsScore();
+    const useOfSilence = getUseOfSilenceScore();
+    const illustrationScore = getIllustrationScore();
+    const emotionalScore = getEmotionalResonanceScore();
+    const subscores = [
+      { label: "Pace Dynamics", score: paceDynamics, icon: "🎯", loaded: true },
+      { label: "Volume Dynamics", score: volumeDynamics, icon: "🔊", loaded: true },
+      { label: "Use of Silence", score: useOfSilence, icon: "🤫", loaded: true },
+      { label: "Illustrations & Stories", score: illustrationScore, icon: "🎭", loaded: illustrationData !== null },
+      { label: "Emotional Resonance", score: emotionalScore, icon: "❤️", loaded: emotionalData !== null },
+    ];
+    const scoresToAvg = subscores.filter((s) => s.loaded);
+    const hasPendingAiMetrics = subscores.some(
+      (s) => (s.label === "Illustrations & Stories" || s.label === "Emotional Resonance") && !s.loaded,
+    );
+    const total = scoresToAvg.length > 0
+      ? Math.round(scoresToAvg.reduce((sum, s) => sum + s.score, 0) / scoresToAvg.length)
+      : 5;
+    return { total, hasPendingAiMetrics, subscores };
+  };
+
+  const [engagementExpanded, setEngagementExpanded] = useState(false);
+
+  const countSlowSpeechParagraphs = (threshold: number = 0.75): number => {
+    if (sentences.length === 0) return 0;
+    const paragraphs = groupIntoParagraphs(sentences);
+    const averageRate = getAverageSpeechRate();
+    return paragraphs.filter(p => {
+      const rate = calculateSpeechRate(p);
+      return rate < averageRate * threshold;
+    }).length;
+  };
+
+  const getSlowSpeechParagraphs = (threshold: number = 0.75) => {
+    if (sentences.length === 0) return [];
+    const paragraphs = groupIntoParagraphs(sentences);
+    const averageRate = getAverageSpeechRate();
+    return paragraphs.filter(p => {
+      const rate = calculateSpeechRate(p);
+      return rate < averageRate * threshold;
+    });
+  };
+
+  const countVolumeChangeParagraphs = (): { [key: number]: number } => {
+    if (sentences.length === 0 || !sermon?.durationSeconds || waveformData.length === 0) {
+      return { '-2': 0, '-1': 0, '0': 0, '1': 0, '2': 0 };
+    }
+    const paragraphs = groupIntoParagraphs(sentences);
+    const counts: { [key: number]: number } = { '-2': 0, '-1': 0, '0': 0, '1': 0, '2': 0 };
+    const baselineAverage = waveformData.reduce((sum, val) => sum + val, 0) / waveformData.length;
+    paragraphs.forEach(paragraph => {
+      const firstSentence = paragraph[0];
+      const lastSentence = paragraph[paragraph.length - 1];
+      if (!firstSentence || !lastSentence) return;
+      const startIndex = Math.floor((firstSentence.startTimeMs / 1000 / sermon.durationSeconds!) * waveformData.length);
+      const endIndex = Math.ceil((lastSentence.endTimeMs / 1000 / sermon.durationSeconds!) * waveformData.length);
+      if (startIndex >= waveformData.length || endIndex > waveformData.length) return;
+      const paragraphData = waveformData.slice(startIndex, endIndex);
+      if (paragraphData.length === 0) return;
+      const paragraphAverage = paragraphData.reduce((sum, val) => sum + val, 0) / paragraphData.length;
+      const volumeRatio = paragraphAverage / baselineAverage;
+      if (volumeRatio >= 1.3) counts[2]++;
+      else if (volumeRatio >= 1.15) counts[1]++;
+      else if (volumeRatio <= 0.7) counts[-2]++;
+      else if (volumeRatio <= 0.85) counts[-1]++;
+      else counts[0]++;
+    });
+    return counts;
+  };
+
+  const countSustainedVolumeDeviations = (thresholdPct: number = 25): { louder: number; softer: number; total: number } => {
+    if (sentences.length === 0 || !sermon?.durationSeconds || waveformData.length === 0) {
+      return { louder: 0, softer: 0, total: 0 };
+    }
+    const paragraphs = groupIntoParagraphs(sentences);
+    const baselineAverage = waveformData.reduce((sum, val) => sum + val, 0) / waveformData.length;
+    if (baselineAverage === 0) return { louder: 0, softer: 0, total: 0 };
+    let louder = 0;
+    let softer = 0;
+    paragraphs.forEach(paragraph => {
+      const firstSentence = paragraph[0];
+      const lastSentence = paragraph[paragraph.length - 1];
+      if (!firstSentence || !lastSentence) return;
+      const startIndex = Math.floor((firstSentence.startTimeMs / 1000 / sermon.durationSeconds!) * waveformData.length);
+      const endIndex = Math.ceil((lastSentence.endTimeMs / 1000 / sermon.durationSeconds!) * waveformData.length);
+      if (startIndex >= waveformData.length || endIndex > waveformData.length) return;
+      const paragraphData = waveformData.slice(startIndex, endIndex);
+      if (paragraphData.length === 0) return;
+      const paragraphAverage = paragraphData.reduce((sum, val) => sum + val, 0) / paragraphData.length;
+      const pctDev = ((paragraphAverage - baselineAverage) / baselineAverage) * 100;
+      if (pctDev >= thresholdPct) louder++;
+      else if (pctDev <= -thresholdPct) softer++;
+    });
+    return { louder, softer, total: louder + softer };
+  };
+
+  const getParagraphVolumeLevel = (paragraph: Sentence[]): number => {
+    if (!sermon?.durationSeconds || waveformData.length === 0) return 0;
+    const firstSentence = paragraph[0];
+    const lastSentence = paragraph[paragraph.length - 1];
+    const startIndex = Math.floor((firstSentence.startTimeMs / 1000 / sermon.durationSeconds) * waveformData.length);
+    const endIndex = Math.ceil((lastSentence.endTimeMs / 1000 / sermon.durationSeconds) * waveformData.length);
+    if (startIndex >= waveformData.length || endIndex > waveformData.length) return 0;
+    const paragraphData = waveformData.slice(startIndex, endIndex);
+    if (paragraphData.length === 0) return 0;
+    const baselineAverage = waveformData.reduce((sum, val) => sum + val, 0) / waveformData.length;
+    const paragraphAverage = paragraphData.reduce((sum, val) => sum + val, 0) / paragraphData.length;
+    const volumeRatio = paragraphAverage / baselineAverage;
+    if (volumeRatio >= 1.3) return 2;
+    if (volumeRatio >= 1.15) return 1;
+    if (volumeRatio <= 0.7) return -2;
+    if (volumeRatio <= 0.85) return -1;
+    return 0;
+  };
+
+  const getVolumeChangeParagraphs = () => {
+    if (sentences.length === 0) return [];
+    const paragraphs = groupIntoParagraphs(sentences);
+    return paragraphs.filter(p => getParagraphVolumeLevel(p) !== 0);
+  };
+
+  // Build an expanded Set of scripture sentence indices that fills gaps
+  const scriptureSentenceIndices = useMemo(() => {
+    if (!scriptureRefs || scriptureRefs.length === 0) return new Set<number>();
+    const raw = [...scriptureRefs.map(r => r.sentenceIndex)].sort((a, b) => a - b);
+    const expanded = new Set(raw);
+    for (let i = 0; i < raw.length - 1; i++) {
+      const gap = raw[i + 1] - raw[i];
+      if (gap <= 4) {
+        for (let j = raw[i] + 1; j < raw[i + 1]; j++) expanded.add(j);
+      }
+    }
+    return expanded;
+  }, [scriptureRefs]);
+
+  const scriptureTextFingerprints = useMemo(() => {
+    if (scriptureSentenceIndices.size === 0 || sentences.length === 0) return new Set<string>();
+    const fingerprints = new Set<string>();
+    sentences.forEach((s, idx) => {
+      if (scriptureSentenceIndices.has(idx)) {
+        const fp = s.sentenceText.toLowerCase().replace(/[?.,!;:'"]/g, '').trim();
+        if (fp.length > 20) fingerprints.add(fp);
+      }
+    });
+    return fingerprints;
+  }, [scriptureSentenceIndices, sentences]);
+
+  const isSentenceInScripture = (sentenceText: string, sentenceIndex?: number): boolean => {
+    if (!scriptureRefs || scriptureRefs.length === 0) return false;
+    if (sentenceIndex !== undefined && scriptureSentenceIndices.size > 0) {
+      if (scriptureSentenceIndices.has(sentenceIndex)) return true;
+    }
+    if (scriptureTextFingerprints.size > 0) {
+      const fp = sentenceText.toLowerCase().replace(/[?.,!;:'"]/g, '').trim();
+      if (fp.length > 20) {
+        if (scriptureTextFingerprints.has(fp)) return true;
+        for (const sfp of scriptureTextFingerprints) {
+          if (fp.includes(sfp) || sfp.includes(fp)) return true;
+          const fpWords = fp.split(/\s+/);
+          const sfpWords = sfp.split(/\s+/);
+          if (fpWords.length >= 5 && sfpWords.length >= 5) {
+            const sfpSet = new Set(sfpWords);
+            const overlap = fpWords.filter(w => sfpSet.has(w)).length;
+            if (overlap / Math.min(fpWords.length, sfpWords.length) > 0.7) return true;
+          }
+        }
+      }
+    }
+    const text = sentenceText.toLowerCase().trim();
+    if (scriptureRefs.some(ref => text.includes(ref.reference.toLowerCase()))) return true;
+    return false;
+  };
+
+  const paragraphContainsScripture = (paragraph: Sentence[]): boolean => {
+    if (!scriptureRefs || !showScriptureRefs) return false;
+    const paragraphText = paragraph.map(s => s.sentenceText).join(" ");
+    return scriptureRefs.some(ref => {
+      const contextWords = ref.context.split(' ').slice(0, 10).join(' ');
+      return paragraphText.includes(contextWords) || paragraphText.includes(ref.reference);
+    });
+  };
+
+  const groupIntoParagraphs = (sentences: Sentence[]) => {
+    const paragraphs: Sentence[][] = [];
+    let current: Sentence[] = [];
+    let wordCount = 0;
+    const MAX_WORDS = 60;
+    for (const s of sentences) {
+      const words = s.sentenceText.trim().split(/\s+/).length;
+      if (current.length > 0 && wordCount + words > MAX_WORDS) {
+        paragraphs.push(current);
+        current = [s];
+        wordCount = words;
+      } else {
+        current.push(s);
+        wordCount += words;
+      }
+    }
+    if (current.length > 0) paragraphs.push(current);
+    return paragraphs;
+  };
+
+  const isCurrentSentence = (sentence: Sentence) => {
+    return currentTime >= sentence.startTimeMs && currentTime < sentence.endTimeMs;
+  };
+
+  const isCurrentParagraph = (paragraph: Sentence[]) => {
+    const firstSentence = paragraph[0];
+    const lastSentence = paragraph[paragraph.length - 1];
+    return currentTime >= firstSentence.startTimeMs && currentTime < lastSentence.endTimeMs;
+  };
+
+  const seekTo = (timeMs: number) => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = timeMs / 1000;
+      setCurrentTime(timeMs);
     }
   };
 
-  const handleApplyCoachNotes = async () => {
-    if (!coachNotes || coachNotes.length === 0) return;
+  const togglePlayPause = async () => {
+    const commentAudio = commentAudioRef.current;
+    if (commentAudio && playingCommentId) {
+      if (commentAudio.paused) commentAudio.play().catch(() => {});
+      else commentAudio.pause();
+      return;
+    }
+    if (audioRef.current) {
+      if (playing) audioRef.current.pause();
+      else await playSermonAudio();
+      if (playing) setPlaying(false);
+    }
+  };
+
+  const handleTimeUpdate = async () => {
+    if (audioRef.current) {
+      const currentMs = audioRef.current.currentTime * 1000;
+      const previousMs = lastTimeRef.current;
+      lastTimeRef.current = currentMs;
+      setCurrentTime(currentMs);
+      if (previewWithComments && !audioRef.current.paused && !isPlayingCommentRef.current) {
+        const audioComments = comments.filter(c => c.audioUrl);
+        for (const comment of audioComments) {
+          if (playedCommentIds.has(comment._id)) continue;
+          const crossedOver = previousMs < comment.startTimeMs && currentMs >= comment.startTimeMs;
+          const withinRange = currentMs >= comment.startTimeMs && currentMs < comment.startTimeMs + 500;
+          if (crossedOver || withinRange) {
+            setPlayedCommentIds(prev => new Set([...prev, comment._id]));
+            audioRef.current!.pause();
+            setPlayingCommentId(comment._id);
+            const url = await resolveCommentAudioUrl(comment);
+            if (url) {
+              if (commentAudioRef.current) {
+                try {
+                  commentAudioRef.current.onended = null;
+                  commentAudioRef.current.onerror = null;
+                  commentAudioRef.current.pause();
+                  commentAudioRef.current.removeAttribute('src');
+                  commentAudioRef.current.load();
+                } catch (e) {}
+                commentAudioRef.current = null;
+              }
+              const audio = new Audio(url);
+              audio.volume = commentVolume;
+              audio.playbackRate = playbackRate;
+              fixWebmDuration(audio);
+              commentAudioRef.current = audio;
+              let handled = false;
+              const cleanup = () => {
+                if (handled) return;
+                handled = true;
+                setPlayingCommentId(null);
+                commentAudioRef.current = null;
+                if (audioRef.current) void playSermonAudio();
+              };
+              audio.onended = cleanup;
+              audio.onerror = (e) => {
+                const mediaError = (audio as HTMLAudioElement).error;
+                if (mediaError && mediaError.code !== MediaError.MEDIA_ERR_ABORTED) {
+                  console.error('Error playing comment audio:', mediaError.message);
+                  cleanup();
+                }
+              };
+              try {
+                await audio.play();
+              } catch (err: unknown) {
+                const error = err as Error;
+                if (error.name !== 'AbortError') {
+                  console.error('Failed to play comment:', err);
+                  cleanup();
+                }
+              }
+            } else {
+              setPlayingCommentId(null);
+              if (audioRef.current) await playSermonAudio();
+            }
+            break;
+          }
+        }
+      }
+    }
+  };
+
+  const stopCommentAudio = () => {
+    if (commentAudioRef.current) {
+      commentAudioRef.current.onended = null;
+      commentAudioRef.current.onerror = null;
+      commentAudioRef.current.pause();
+      commentAudioRef.current.removeAttribute('src');
+      commentAudioRef.current.load();
+      commentAudioRef.current = null;
+    }
+    setPlayingCommentId(null);
+  };
+
+  const fixWebmDuration = (audio: HTMLAudioElement) => {
+    const onLoaded = () => {
+      if (!isFinite(audio.duration)) {
+        const onTimeUpdate = () => {
+          audio.removeEventListener('timeupdate', onTimeUpdate);
+          try { audio.currentTime = 0; } catch { /* noop */ }
+        };
+        audio.addEventListener('timeupdate', onTimeUpdate);
+        try { audio.currentTime = 1e101; } catch { /* noop */ }
+      }
+    };
+    audio.addEventListener('loadedmetadata', onLoaded, { once: true });
+  };
+
+  const handleSeeked = () => {
+    stopCommentAudio();
+    if (audioRef.current) {
+      const currentMs = audioRef.current.currentTime * 1000;
+      setPlayedCommentIds(prev => {
+        const newSet = new Set<string>();
+        prev.forEach(id => {
+          const comment = comments.find(c => c._id === id);
+          if (comment && comment.startTimeMs < currentMs) newSet.add(id);
+        });
+        return newSet;
+      });
+      lastTimeRef.current = currentMs;
+    }
+  };
+
+  const preAcquireStream = () => {
+    if (preAcquiredStream && preAcquiredStream.active) return;
+    const audioConstraints: MediaTrackConstraints = {
+      ...(selectedDeviceId ? { deviceId: { ideal: selectedDeviceId } } : {}),
+      sampleRate: 44100,
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: true,
+    };
+    navigator.mediaDevices.getUserMedia({ audio: audioConstraints }).then(stream => {
+      setPreAcquiredStream(stream);
+    }).catch(e => {
+      console.error('Failed to pre-acquire mic stream:', e);
+      setPreAcquiredStream(undefined);
+    });
+  };
+
+  const handleAudioPause = () => {
+    setPlaying(false);
+    stopCommentAudio();
+  };
+
+  const openCommentDialog = (start: number, end: number) => {
+    setSelectedTimeRange({ start, end });
+    if (!preAcquiredStream || !preAcquiredStream.active) {
+      setPreAcquiredStream(null);
+      preAcquireStream();
+    }
+    setCommentDialogOpen(true);
+  };
+
+  // Resolve comment audio URL (stored as audioUrl in Convex)
+  const resolveCommentAudioUrl = async (comment: Comment): Promise<string | null> => {
+    if (!comment.audioUrl) return null;
+    const cachedUrl = commentSignedUrls[comment._id];
+    if (cachedUrl) return cachedUrl;
+    // audioUrl is a direct URL in Convex (stored in Convex storage or external)
+    const resolvedUrl = comment.audioUrl;
+    if (resolvedUrl) {
+      setCommentSignedUrls((prev) => ({ ...prev, [comment._id]: resolvedUrl }));
+    }
+    return resolvedUrl;
+  };
+
+  const handleAutoSaveAudioComment = async (blob: Blob) => {
+    if (!selectedTimeRange) return;
+    try {
+      if (!user?.id) throw new Error("Not authenticated");
+      setTranscribing(true);
+      // TODO: transcribe-audio-comment edge function stub
+      const commentText = "Audio comment";
+      // TODO: upload audio to Convex storage
+      await addCommentMutation({
+        sermonId,
+        commentText,
+        startTimeMs: selectedTimeRange.start,
+        endTimeMs: selectedTimeRange.end,
+      });
+      toast.success("Audio comment saved");
+      setCommentDialogOpen(false);
+      setAudioBlob(null);
+      if (preAcquiredStream) {
+        preAcquiredStream.getTracks().forEach(t => t.stop());
+        setPreAcquiredStream(undefined);
+      }
+      const nextSentence = sentences.find(s => s.startTimeMs > selectedTimeRange.start);
+      if (nextSentence && audioRef.current) {
+        audioRef.current.currentTime = nextSentence.startTimeMs / 1000;
+        lastTimeRef.current = nextSentence.startTimeMs;
+      }
+    } catch (error: unknown) {
+      toast.error("Error saving audio comment", { description: (error as Error).message });
+    } finally {
+      setTranscribing(false);
+    }
+  };
+
+  const handleAddComment = async () => {
+    if ((!newComment.trim() && !audioBlob) || !selectedTimeRange) return;
+    try {
+      if (!user?.id) throw new Error("Not authenticated");
+      let commentText = newComment;
+      if (audioBlob) {
+        setTranscribing(true);
+        // TODO: transcribe-audio-comment stub
+        commentText = "Audio comment";
+        setTranscribing(false);
+      }
+      await addCommentMutation({
+        sermonId,
+        commentText,
+        startTimeMs: selectedTimeRange.start,
+        endTimeMs: selectedTimeRange.end,
+      });
+      toast.success("Comment added successfully");
+      setCommentDialogOpen(false);
+      setNewComment("");
+      setAudioBlob(null);
+      if (audioBlob) {
+        const nextSentence = sentences.find(s => s.startTimeMs > selectedTimeRange.start);
+        if (nextSentence && audioRef.current) {
+          audioRef.current.currentTime = nextSentence.startTimeMs / 1000;
+          lastTimeRef.current = nextSentence.startTimeMs;
+        }
+      }
+    } catch (error: unknown) {
+      setTranscribing(false);
+      toast.error("Error adding comment", { description: (error as Error).message });
+    }
+  };
+
+  const handlePreviewParagraph = async (paragraphIndex: number) => {
+    const paragraph = groupIntoParagraphs(sentences)[paragraphIndex];
+    if (!paragraph || !audioRef.current) return;
+    const firstSentence = paragraph[0];
+    const lastSentence = paragraph[paragraph.length - 1];
+    setPreviewingParagraph(paragraphIndex);
+    if (audioRef.current) {
+      audioRef.current.pause();
+      setPlaying(false);
+    }
+    const paragraphComments = comments.filter(
+      c => c.audioUrl && c.startTimeMs >= firstSentence.startTimeMs && c.endTimeMs <= lastSentence.endTimeMs
+    ).sort((a, b) => a.startTimeMs - b.startTimeMs);
+    if (paragraphComments.length === 0) {
+      audioRef.current.currentTime = firstSentence.startTimeMs / 1000;
+      audioRef.current.play();
+      setPlaying(true);
+      const checkEnd = setInterval(() => {
+        if (audioRef.current && audioRef.current.currentTime * 1000 >= lastSentence.endTimeMs) {
+          audioRef.current.pause();
+          setPlaying(false);
+          setPreviewingParagraph(null);
+          clearInterval(checkEnd);
+        }
+      }, 100);
+      return;
+    }
+    try {
+      const paragraphStart = firstSentence.startTimeMs / 1000;
+      const paragraphEnd = lastSentence.endTimeMs / 1000;
+      const playSermonSegment = (startTime: number, endTime: number): Promise<void> => {
+        return new Promise((resolve) => {
+          if (!audioRef.current) { resolve(); return; }
+          audioRef.current.pause();
+          audioRef.current.currentTime = startTime;
+          const playPromise = audioRef.current.play();
+          setPlaying(true);
+          const checkEnd = setInterval(() => {
+            if (!audioRef.current || audioRef.current.currentTime >= endTime) {
+              if (audioRef.current) audioRef.current.pause();
+              setPlaying(false);
+              clearInterval(checkEnd);
+              resolve();
+            }
+          }, 50);
+          playPromise?.catch(() => { clearInterval(checkEnd); setPlaying(false); resolve(); });
+        });
+      };
+      const playCommentAudio = async (comment: Comment): Promise<void> => {
+        if (audioRef.current) { audioRef.current.pause(); setPlaying(false); }
+        return new Promise(async (resolve) => {
+          const resolvedUrl = await resolveCommentAudioUrl(comment);
+          if (!resolvedUrl) { resolve(); return; }
+          const audio = new Audio(resolvedUrl);
+          audio.playbackRate = playbackRate;
+          audio.onended = () => resolve();
+          audio.onerror = () => resolve();
+          try { await audio.play(); } catch (error) { resolve(); }
+        });
+      };
+      let currentTimeLocal = paragraphStart;
+      for (const comment of paragraphComments) {
+        if (!comment.audioUrl) continue;
+        const commentStart = comment.startTimeMs / 1000;
+        if (commentStart > currentTimeLocal) {
+          await playSermonSegment(currentTimeLocal, commentStart);
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+        if (audioRef.current) { audioRef.current.pause(); setPlaying(false); }
+        await playCommentAudio(comment);
+        await new Promise(resolve => setTimeout(resolve, 300));
+        currentTimeLocal = Math.max(currentTimeLocal, commentStart + 0.001);
+      }
+      if (currentTimeLocal < paragraphEnd) await playSermonSegment(currentTimeLocal, paragraphEnd);
+      setPreviewingParagraph(null);
+    } catch (error: unknown) {
+      console.error("Preview error:", error);
+      toast.error("Preview failed", { description: (error as Error).message });
+      setPreviewingParagraph(null);
+    }
+  };
+
+  const handleExportAudio = async () => {
+    if (!sermon || !audioUrl) {
+      toast.error("Error", { description: "Sermon audio not loaded" });
+      return;
+    }
+    setCombiningAudio(true);
+    setCombineProgress(0);
+    setCombineStatus("Starting...");
+    try {
+      const audioComments: { url: string; timestamp: number }[] = [];
+      for (const comment of comments.filter(c => c.audioUrl)) {
+        const resolvedUrl = await resolveCommentAudioUrl(comment);
+        if (resolvedUrl) audioComments.push({ url: resolvedUrl, timestamp: comment.startTimeMs });
+      }
+      if (audioComments.length === 0) throw new Error("No audio comments found");
+      const combinedBlob = await combineAudioFiles(
+        audioUrl,
+        audioComments,
+        (progress, status) => { setCombineProgress(progress); setCombineStatus(status); }
+      );
+      const url = URL.createObjectURL(combinedBlob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${sermon.title || 'sermon'}_combined.mp3`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success("Success", { description: "Combined audio downloaded successfully" });
+    } catch (error: unknown) {
+      console.error("Export error:", error);
+      toast.error("Export failed", { description: (error as Error).message });
+    } finally {
+      setCombiningAudio(false);
+      setCombineProgress(0);
+      setCombineStatus("");
+    }
+  };
+
+  const handleDeleteComment = async (commentId: string) => {
+    try {
+      await deleteCommentMutation({ commentId: commentId as Id<"sermonComments"> });
+      toast.success("Comment deleted");
+    } catch (error: unknown) {
+      toast.error("Error deleting comment", { description: (error as Error).message });
+    }
+  };
+
+  const [transcribingCommentId, setTranscribingCommentId] = useState<string | null>(null);
+
+  const handleTranscribeComment = async (comment: Comment) => {
+    if (!comment.audioUrl) return;
+    setTranscribingCommentId(comment._id);
+    // TODO: transcribe-audio-comment stub
+    toast.info("Audio transcription requires edge function configuration (TODO).");
+    setTranscribingCommentId(null);
+  };
+
+  const getCommentsForRange = (start: number, end: number) => {
+    return comments.filter((c) => {
+      if (c.startTimeMs === 0 && c.endTimeMs === 0) return false;
+      if (hideAIEvalComments && c.ruleId) return false;
+      if (c.ruleId && hiddenRuleIds.has(c.ruleId)) return false;
+      if (hideMyComments && !c.ruleId && !/^\s*\[AI Coach\]/i.test(c.commentText || "")) return false;
+      return c.startTimeMs >= start && c.startTimeMs < end;
+    });
+  };
+
+  const handleExport = async (format: string) => {
+    // TODO: export-sermon stub
+    toast.info("Export requires edge function configuration (TODO).");
+  };
+
+  const handleExportReport = async () => {
+    // TODO: generate-sermon-report stub
+    toast.info("Report export requires edge function configuration (TODO).");
+  };
+
+  const captureChartElement = async (key: "wpm" | "volume"): Promise<string | null> => {
+    const el = document.querySelector<HTMLElement>(`[data-export-chart="${key}"]`);
+    if (!el) return null;
+    const prevPadding = el.style.paddingBottom;
+    try {
+      el.style.paddingBottom = "32px";
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+      const dataUrl = await toPng(el, {
+        pixelRatio: 2,
+        backgroundColor: getComputedStyle(document.documentElement).getPropertyValue("--background")
+          ? `hsl(${getComputedStyle(document.documentElement).getPropertyValue("--background").trim()})`
+          : "#ffffff",
+        cacheBust: true,
+      });
+      return dataUrl;
+    } catch (err) {
+      console.warn(`Chart capture failed for ${key}`, err);
+      return null;
+    } finally {
+      el.style.paddingBottom = prevPadding;
+    }
+  };
+
+  const handleExportClientPdf = async () => {
+    if (!sermon) return;
+    setExporting(true);
+    try {
+      const totalWords = sentences.reduce(
+        (sum: number, s: Sentence) => sum + s.sentenceText.split(/\s+/).filter(Boolean).length,
+        0,
+      );
+      const congQuestions = sentences.filter((s: Sentence, idx: number) => {
+        if (!s.sentenceText.trim().endsWith("?")) return false;
+        if (congregationQuestionIndices && !congregationQuestionIndices.has(idx)) return false;
+        return true;
+      }).length;
+      const engagement = getEngagementScore();
+      const aiComments = comments.filter((c: Comment) => c.ruleId);
+      const ruleMap = new Map<string, { ruleName: string; ruleColor?: string | null; items: { startMs: number; text: string }[] }>();
+      for (const c of aiComments) {
+        const rule = rules.find((r) => r._id === c.ruleId);
+        const key = rule?._id || "unknown";
+        if (!ruleMap.has(key)) {
+          ruleMap.set(key, { ruleName: rule?.name || "Unnamed Rule", ruleColor: rule?.color, items: [] });
+        }
+        ruleMap.get(key)!.items.push({ startMs: c.startTimeMs, text: c.commentText });
+      }
+      const grouped = Array.from(ruleMap.values()).map((g) => ({
+        ...g,
+        items: g.items.sort((a, b) => a.startMs - b.startMs),
+      }));
+      const data: ClientReportData = {
+        sermonTitle: sermon.title || "Untitled Sermon",
+        sermonDate: new Date(Date.now()).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" }),
+        durationSeconds: sermon.durationSeconds ?? null,
+        communicatorName: null,
+        engagement: {
+          total: engagement.total,
+          subscores: engagement.subscores.map((s) => ({ label: s.label, score: s.score })),
+        },
+        metrics: {
+          averageWPM: Math.round(getAverageSpeechRate()),
+          wordCount: totalWords,
+          fastSpeechCount: countFastSpeechParagraphs(fastSpeechThreshold),
+          fastSpeechThreshold,
+          slowSpeechCount: countSlowSpeechParagraphs(slowSpeechThreshold),
+          slowSpeechThreshold,
+          verbalPausesCount: countVerbalPauses(),
+          insiderLanguageCount: countInsiderLanguage(),
+          congregationQuestions: congQuestions,
+          illustrationScore: illustrationData?.illustration_score ?? 0,
+          emotionalResonanceScore: emotionalData?.overall_score ?? 0,
+        },
+        topFillerWords: getTopFillerWords().map((f) => ({ word: f.word, count: f.count })),
+        topInsiderTerms: getTopInsiderTerms().map((t) => ({ word: t.word, count: t.count })),
+        repeatedPhrases: getRepeatedPhrases(3).slice(0, 8),
+        scriptureRefs: scriptureRefs?.map((r: ScriptureRef) => ({
+          reference: r.reference,
+          context: r.context,
+        })) || [],
+        wpmSeries: getWpmTimelineData().map((d) => ({ timeMs: d.time, value: d.wpm })),
+        volumeSeries: getVolumeTimelineData().map((d) => ({ timeMs: d.time, value: d.volume })),
+        averageWPM: Math.round(getAverageSpeechRate()),
+        wpmChartImage: await captureChartElement('wpm'),
+        volumeChartImage: await captureChartElement('volume'),
+        visitorConfusion: (confusingPhrases || []).map((p: ConfusingPhrase) => ({
+          severity: (p.severity as "mild" | "moderate" | "severe") || "mild",
+          phrase: p.phrase,
+          startMs: p.startTimeMs,
+          reason: "",
+          suggestion: p.suggestion,
+        })),
+        aiComments: grouped,
+      };
+      const blob = await generateClientReportPdf(data);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const safeTitle = (sermon.title || "sermon").replace(/[^\w\d-]+/g, "-").slice(0, 60);
+      a.href = url;
+      a.download = `${safeTitle}-client-report.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Client report downloaded");
+    } catch (error: unknown) {
+      console.error("Client PDF export error:", error);
+      toast.error("Export failed", { description: (error as Error).message });
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // Keep ref in sync with playingCommentId state
+  useEffect(() => {
+    isPlayingCommentRef.current = playingCommentId !== null;
+    if (playingCommentId && audioRef.current && !audioRef.current.paused) {
+      audioRef.current.pause();
+    }
+  }, [playingCommentId]);
+
+  const handleSummarizeComments = async () => {
+    if (comments.length === 0) {
+      toast.error("No comments to summarize", { description: "Add some comments first before generating a summary" });
+      return;
+    }
+    // TODO: summarize-comments stub
+    toast.info("Comment summary requires edge function configuration (TODO).");
+  };
+
+  const AI_COACH_TAG = "[AI Coach]";
+
+  const handleGenerateCoachComments = async () => {
+    if (!sermonId) return;
+    if (!sentences || sentences.length === 0) {
+      toast.error("Transcript not ready", { description: "The sermon must finish transcription before AI Coach can review it." });
+      return;
+    }
+    setCoachLoading(true);
+    setCoachOpen(true);
+    // TODO: ai-coach-comments stub
+    toast.info("AI Coach requires edge function configuration (TODO).");
+    setCoachLoading(false);
+  };
+
+  const handleApplyCoachComments = async () => {
+    if (!sermonId || !coachNotes || coachNotes.length === 0) return;
     setCoachApplying(true);
     try {
-      for (const note of coachNotes) {
-        await addComment({
+      if (!user?.id) throw new Error("Not signed in");
+      for (const n of coachNotes) {
+        await addCommentMutation({
           sermonId,
-          commentText: `[AI Coach] ${note.comment_text}`,
-          startTimeMs: note.start_time_ms,
-          endTimeMs: note.end_time_ms,
+          commentText: `${AI_COACH_TAG}${n.category ? ` (${n.category})` : ""} ${n.comment_text}`,
+          startTimeMs: n.start_time_ms,
+          endTimeMs: n.end_time_ms,
         });
       }
+      toast.success("Applied to timeline", { description: `Inserted ${coachNotes.length} comment${coachNotes.length === 1 ? "" : "s"}.` });
       setCoachNotes(null);
-      toast.success(`Applied ${coachNotes.length} AI Coach comments`);
-    } catch {
-      toast.error("Failed to apply coach notes");
+    } catch (err: unknown) {
+      toast.error("Could not apply", { description: (err as Error)?.message || "Insertion failed." });
     } finally {
       setCoachApplying(false);
     }
   };
 
-  // ── Status badge ─────────────────────────────────────────────────────────────
-  function StatusBadge() {
-    if (!sermon) return null;
-    const s = sermon.transcriptionStatus;
-    if (s === "processing" || s === "pending") {
-      return (
-        <Badge variant="secondary" className="gap-1">
-          <Loader2 className="h-3 w-3 animate-spin" />
-          {s === "pending" ? "Queued" : "Transcribing"}
-        </Badge>
-      );
-    }
-    if (s === "error") {
-      return (
-        <Badge variant="destructive" className="gap-1">
-          Error
-        </Badge>
-      );
-    }
-    return (
-      <Badge className="gap-1 bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-        <Check className="h-3 w-3" />
-        Ready
-      </Badge>
-    );
-  }
+  const handleRegenerateCoachAudio = async () => {
+    // TODO: tts-clone-comment stub
+    toast.info("Voice regeneration requires ElevenLabs configuration (TODO).");
+  };
 
-  // ── Loading / not found ───────────────────────────────────────────────────────
-  if (sermon === undefined) {
+  const handleDeleteAllCoachComments = async () => {
+    if (!sermonId) return;
+    setCoachDeleting(true);
+    try {
+      const coachComments = comments.filter(c => /^\s*\[AI Coach\]/i.test(c.commentText || ""));
+      for (const c of coachComments) {
+        await deleteCommentMutation({ commentId: c._id });
+      }
+      toast.success("AI Coach comments removed", { description: "All AI-generated comments on this sermon were deleted." });
+    } catch (err: unknown) {
+      toast.error("Delete failed", { description: (err as Error)?.message || "Could not delete AI Coach comments." });
+    } finally {
+      setCoachDeleting(false);
+    }
+  };
+
+  if (loading || sermon === undefined) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-  if (sermon === null) {
-    return (
-      <div className="flex items-center justify-center h-64 flex-col gap-4">
-        <p className="text-muted-foreground">Sermon not found</p>
-        <Button onClick={() => router.push("/dashboard")}>Back to Dashboard</Button>
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin" />
       </div>
     );
   }
 
-  // ────────────────────────────────────────────────────────────────────────────
+  if (!sermon) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p>Sermon not found</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-7xl mx-auto px-4 py-4">
-      {/* ── Header ── */}
-      <div className="flex flex-wrap items-start gap-3 mb-6">
-        <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard")} className="mt-1">
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back
-        </Button>
-
-        {/* Title */}
-        <div className="flex-1 min-w-0">
-          {editingTitle ? (
-            <div className="flex items-center gap-2">
-              <Input
-                className="text-xl font-bold h-10 w-80"
-                value={titleInput}
-                onChange={(e) => setTitleInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSaveTitle();
-                  if (e.key === "Escape") setEditingTitle(false);
-                }}
-                autoFocus
-              />
-              <Button size="icon" variant="ghost" className="h-8 w-8" onClick={handleSaveTitle}>
-                <Check className="h-4 w-4" />
-              </Button>
-              <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setEditingTitle(false)}>
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 group">
-              <h1 className="text-2xl font-bold truncate">{sermon.title || "Untitled Sermon"}</h1>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={() => { setTitleInput(sermon.title ?? ""); setEditingTitle(true); }}
-              >
-                <Pencil className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          )}
-          <div className="flex items-center gap-2 text-sm text-muted-foreground mt-0.5 flex-wrap">
-            <StatusBadge />
-            {sermon.durationSeconds ? (
-              <>
-                <Clock className="h-3 w-3" />
-                <span>{formatTime(sermon.durationSeconds)}</span>
-              </>
-            ) : null}
-            <span>·</span>
-            <span>{sortedSentences.length} sentences</span>
-            <span>·</span>
-            <span>{comments.length} comments</span>
-          </div>
-        </div>
-
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={handleReanalyze}
-          disabled={reanalyzing}
-        >
-          {reanalyzing ? (
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4 mr-2" />
-          )}
-          Re-run Analysis
-        </Button>
-      </div>
-
-      {/* ── Collapsible Audio Player ── */}
-      <Card className={cn("mb-4 shadow-md transition-all duration-300", playerCollapsed ? "py-2 px-4" : "")}>
-        <button
-          className="w-full flex items-center justify-between cursor-pointer px-6 py-2"
-          onClick={() => setPlayerCollapsed(!playerCollapsed)}
-        >
-          <div className="flex items-center gap-3">
-            <h2 className={cn("font-semibold text-primary transition-all duration-300", playerCollapsed ? "text-sm" : "text-base")}>
-              Audio Player
-            </h2>
-            {playerCollapsed && playing && (
-              <Badge variant="secondary" className="animate-pulse text-xs">Playing</Badge>
-            )}
-            {playerCollapsed && (
-              <span className="text-xs text-muted-foreground font-mono">
-                {formatTime(currentTime)} / {sermon.durationSeconds ? formatTime(sermon.durationSeconds) : "0:00"}
-              </span>
-            )}
-          </div>
-          <ChevronDown
-            className={cn("h-5 w-5 text-muted-foreground transition-transform duration-300", playerCollapsed && "rotate-180")}
-          />
-        </button>
-
-        <div className={cn("overflow-hidden transition-all duration-300", playerCollapsed ? "max-h-0 opacity-0" : "max-h-[500px] opacity-100")}>
-          <CardContent className="pt-2 pb-4 space-y-3">
-            {audioUrl && (
-              <audio
-                ref={audioRef}
-                src={audioUrl}
-                onTimeUpdate={handleTimeUpdate}
-                onLoadedMetadata={handleLoadedMetadata}
-                onPlay={() => setPlaying(true)}
-                onPause={() => setPlaying(false)}
-                onEnded={() => setPlaying(false)}
-              />
-            )}
-
-            {/* Waveform + Progress */}
-            <div className="relative">
-              {/* Waveform canvas (background) */}
-              <div
-                className="relative h-16 bg-primary/80 rounded-lg overflow-hidden cursor-pointer"
-                onClick={handleProgressClick}
-              >
-                <canvas
-                  ref={waveformCanvasRef}
-                  className="absolute inset-0 w-full h-full"
-                />
-                {/* Playhead */}
-                <div
-                  className="absolute top-0 bottom-0 w-0.5 bg-white/90 pointer-events-none"
-                  style={{ left: duration ? `${(currentTime / duration) * 100}%` : "0%" }}
-                />
-                {/* Comment markers on waveform */}
-                {comments.map((c, i) => (
-                  <div
-                    key={i}
-                    className="absolute top-0 bottom-0 w-0.5 bg-amber-400/80 pointer-events-none"
-                    style={{ left: duration ? `${(c.startTimeMs / 1000 / duration) * 100}%` : "0%" }}
-                  />
-                ))}
-              </div>
-            </div>
-
-            {/* Time + Play row */}
-            <div className="flex items-center gap-3">
-              <Button
-                size="icon"
-                onClick={togglePlay}
-                disabled={!audioUrl}
-                className="h-10 w-10 shrink-0"
-              >
-                {playing ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 ml-0.5" />}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  if (audioRef.current) {
-                    audioRef.current.currentTime = 0;
-                    setCurrentTime(0);
-                  }
-                }}
-              >
-                <RotateCcw className="h-4 w-4 mr-1" />
-                From start
-              </Button>
-              <span className="text-sm tabular-nums text-muted-foreground">
-                {formatTime(currentTime)}
-              </span>
-              <div
-                className="flex-1 h-2 bg-muted rounded-full cursor-pointer relative"
-                onClick={handleProgressClick}
-              >
-                <div
-                  className="h-full bg-primary rounded-full transition-none pointer-events-none"
-                  style={{ width: duration ? `${(currentTime / duration) * 100}%` : "0%" }}
-                />
-                {/* Comment markers */}
-                {comments.map((c, i) => (
-                  <div
-                    key={i}
-                    className="absolute top-1/2 -translate-y-1/2 w-2 h-2 bg-amber-500 rounded-full -ml-1 cursor-pointer z-10"
-                    style={{ left: duration ? `${(c.startTimeMs / 1000 / duration) * 100}%` : "0%" }}
-                    onClick={(e) => { e.stopPropagation(); seekTo(c.startTimeMs); }}
-                    title={c.commentText}
-                  />
-                ))}
-              </div>
-              <span className="text-sm tabular-nums text-muted-foreground text-right">
-                {formatTime(duration)}
-              </span>
-            </div>
-
-            {/* Controls row */}
-            <div className="flex items-center gap-4 flex-wrap">
-              {/* Speed */}
-              <div className="flex items-center gap-1">
-                <span className="text-xs text-muted-foreground mr-1">Speed:</span>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" className="min-w-[3.5rem]">
-                      {playbackRate}x
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent>
-                    {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((r) => (
-                      <DropdownMenuItem key={r} onClick={() => setPlaybackRate(r)}>
-                        {r}x {playbackRate === r && "✓"}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-
-              {/* Volume */}
-              <div className="flex items-center gap-2">
-                <Volume2 className="h-4 w-4 text-muted-foreground" />
-                <Slider
-                  className="w-24"
-                  min={0}
-                  max={2}
-                  step={0.05}
-                  value={[volume]}
-                  onValueChange={([v]) => setVolume(v)}
-                />
-                <span className="text-xs text-muted-foreground w-8">{Math.round(volume * 100)}%</span>
-              </div>
-
-              {/* Time since last comment */}
-              {timeSinceLastComment !== null && (
-                <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
-                  <MessageSquare className="h-3.5 w-3.5" />
-                  <span className="font-mono">
-                    {Math.floor(timeSinceLastComment / 60)}:{String(timeSinceLastComment % 60).padStart(2, "0")}
-                  </span>
-                  <span>since last comment</span>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </div>
-      </Card>
-
-      {/* ── Analytics dashboard (full-width, collapsible, above transcript) ── */}
-      <Card className={`mb-6 shadow-lg transition-all duration-300 ${dashboardCollapsed ? 'py-2 px-4' : 'p-6'}`}>
-        <div className="w-full flex items-center justify-between cursor-pointer" onClick={() => setDashboardCollapsed((v) => !v)}>
-          <h2 className={`font-semibold transition-all duration-300 ${dashboardCollapsed ? 'text-sm' : 'text-xl'}`} style={{background: 'linear-gradient(135deg, hsl(38,95%,58%), hsl(12,85%,60%))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent'}}>Sermon Analytics</h2>
-          <Button size="icon" variant="ghost" className="h-7 w-7">
-            {dashboardCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
-          </Button>
-        </div>
-        <div className={`overflow-hidden transition-all duration-300 ${dashboardCollapsed ? 'max-h-0 opacity-0 mt-0' : 'mt-4'}`}>
-          <AnalyticsSidebar
-            metrics={metrics}
-            sentenceMetricsSorted={sentenceMetricsSorted}
-            fillerWords={fillerWords}
-            silences={silences}
-            longSilences={longSilences}
-            longestSilence={longestSilence}
-            scriptureRefs={scriptureRefs}
-            confusingPhrases={confusingPhrases}
-            accessibilityScore={accessibilityScore}
-            questions={questions}
-            congregationQuestions={congregationQuestions}
-            missedQuestions={missedQuestions}
-            illustrations={illustrations}
-            illustrationTypes={illustrationTypes}
-            intent={intent}
-            avgWpm={avgWpm}
-            wordCount={wordCount}
-            engagementScore={engagementScore}
-            engagementExpanded={engagementExpanded}
-            setEngagementExpanded={setEngagementExpanded}
-            currentMs={currentMs}
-            seekTo={seekTo}
-            coachLoading={coachLoading}
-            coachNotes={coachNotes}
-            coachApplying={coachApplying}
-            hasSentences={sortedSentences.length > 0}
-            onGenerateCoachNotes={handleGenerateCoachNotes}
-            onApplyCoachNotes={handleApplyCoachNotes}
-            onDiscardCoachNotes={() => setCoachNotes(null)}
-          />
-        </div>
-      </Card>
-
-      {/* ── Transcript row ── */}
-      <div className="flex gap-4">
-        {/* ── Left sidebar ── */}
-        <div className="sticky top-4 self-start shrink-0 w-44 hidden lg:block">
-          <Card className="p-4 space-y-4">
-            {/* Comment count */}
-            <div className="text-center">
-              <div className="text-3xl font-bold text-primary">{comments.filter((c) => !c.ruleId).length}</div>
-              <div className="text-xs text-muted-foreground">Comments</div>
-            </div>
-
-            {comments.filter((c) => !c.ruleId).length > 0 && (
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="hide-mine"
-                  checked={hideMyComments}
-                  onCheckedChange={setHideMyComments}
-                />
-                <label htmlFor="hide-mine" className="text-xs text-muted-foreground cursor-pointer">
-                  Hide mine
-                </label>
-              </div>
-            )}
-
-            <div className="border-t" />
-
-            {/* Playback speed */}
-            <div className="space-y-2 text-center">
-              <div className="text-xs text-muted-foreground">Speed</div>
-              <div className="flex items-center justify-center gap-1">
-                <Button
-                  size="icon"
-                  variant="outline"
-                  className="h-7 w-7"
-                  onClick={() => {
-                    const speeds = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
-                    const idx = speeds.indexOf(playbackRate);
-                    if (idx > 0) setPlaybackRate(speeds[idx - 1]);
-                  }}
-                  disabled={playbackRate <= 0.5}
-                >
-                  <span className="text-xs font-bold">−</span>
-                </Button>
-                <span className="text-lg font-mono font-bold min-w-[3rem] text-center">{playbackRate}x</span>
-                <Button
-                  size="icon"
-                  variant="outline"
-                  className="h-7 w-7"
-                  onClick={() => {
-                    const speeds = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
-                    const idx = speeds.indexOf(playbackRate);
-                    if (idx < speeds.length - 1) setPlaybackRate(speeds[idx + 1]);
-                  }}
-                  disabled={playbackRate >= 2}
-                >
-                  <span className="text-xs font-bold">+</span>
-                </Button>
-              </div>
-            </div>
-
-            <div className="border-t" />
-
-            {/* Highlight */}
-            <div className="space-y-2 text-center">
-              <div className="text-xs text-muted-foreground">Highlighter</div>
-              <Button
-                variant={highlightMode ? "default" : "outline"}
-                size="sm"
-                onClick={() => setHighlightMode(!highlightMode)}
-                className="w-full"
-              >
-                <Highlighter className="h-4 w-4 mr-2" />
-                {highlightMode ? "Done" : "Highlight"}
-              </Button>
-              {highlightMode && (
-                <div className="flex items-center justify-center gap-1.5">
-                  {HIGHLIGHT_COLORS.map((c) => (
-                    <button
-                      key={c.name}
-                      className={cn(
-                        "w-6 h-6 rounded-full border-2 transition-transform",
-                        activeColor.name === c.name ? "scale-125 border-foreground" : "border-transparent"
-                      )}
-                      style={{ backgroundColor: c.hex }}
-                      onClick={() => setActiveColor(c)}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="border-t" />
-
-            {/* View mode */}
-            <div className="space-y-2 text-center">
-              <div className="text-xs text-muted-foreground">View Mode</div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full"
-                onClick={() => setViewMode(viewMode === "sentence" ? "paragraph" : "sentence")}
-              >
-                {viewMode === "sentence" ? (
-                  <><AlignLeft className="h-4 w-4 mr-2" /> Paragraph</>
-                ) : (
-                  <><List className="h-4 w-4 mr-2" /> Sentence</>
-                )}
-              </Button>
-            </div>
-
-            {userScrolledAway && (
-              <>
-                <div className="border-t" />
-                <Button variant="outline" size="sm" className="w-full text-xs" onClick={scrollToActive}>
-                  <RotateCcw className="h-3 w-3 mr-1" />
-                  Return to current
-                </Button>
-              </>
-            )}
-          </Card>
-        </div>
-
-        {/* ── Center: Transcript ── */}
-        <div className="flex-1 min-w-0 space-y-4">
-          {/* Mobile controls */}
-          <div className="flex items-center gap-2 flex-wrap lg:hidden">
-            <Button
-              variant={highlightMode ? "default" : "outline"}
-              size="sm"
-              onClick={() => setHighlightMode(!highlightMode)}
-            >
-              <Highlighter className="h-4 w-4 mr-2" />
-              {highlightMode ? "Highlighting" : "Highlight"}
+    <div className="min-h-screen bg-gradient-surface">
+      <div className="container py-8 animate-fade-in">
+        <div className="mb-6 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="icon" onClick={() => router.push("/dashboard")}>
+              <ArrowLeft className="h-5 w-5" />
             </Button>
-            {highlightMode && HIGHLIGHT_COLORS.map((c) => (
-              <button
-                key={c.name}
-                className={cn(
-                  "w-6 h-6 rounded-full border-2",
-                  activeColor.name === c.name ? "border-foreground scale-110" : "border-transparent"
-                )}
-                style={{ backgroundColor: c.hex }}
-                onClick={() => setActiveColor(c)}
-              />
-            ))}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setViewMode(viewMode === "sentence" ? "paragraph" : "sentence")}
-            >
-              {viewMode === "sentence" ? <AlignLeft className="h-4 w-4 mr-2" /> : <List className="h-4 w-4 mr-2" />}
-              {viewMode === "sentence" ? "Paragraph" : "Sentence"}
-            </Button>
-          </div>
-
-          {/* Comment box */}
-          {showCommentBox && selectedRange && (
-            <Card>
-              <CardContent className="pt-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <MessageSquare className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium">
-                      Comment at {formatMs(selectedRange.start)}
-                    </span>
-                  </div>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-7 w-7"
-                    onClick={() => { setShowCommentBox(false); setSelectedRange(null); setCommentText(""); }}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-                <Textarea
-                  value={commentText}
-                  onChange={(e) => setCommentText(e.target.value)}
-                  placeholder="Type your coaching comment..."
-                  className="mb-3"
-                  rows={3}
-                  autoFocus
-                  onKeyDown={(e) => { if (e.key === "Enter" && e.metaKey) handleSaveComment(); }}
-                />
-                <div className="flex justify-end gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => { setShowCommentBox(false); setCommentText(""); }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={handleSaveComment}
-                    disabled={!commentText.trim() || savingComment}
-                  >
-                    {savingComment && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                    Save Comment (⌘↵)
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Transcript card */}
-          <Card>
-            <CardHeader className="pb-2 flex flex-row items-center justify-between">
-              <CardTitle className="text-base flex items-center gap-2">
-                <FileText className="h-4 w-4" />
-                Transcript
-              </CardTitle>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                {autoScrollEnabled ? (
-                  <span className="flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                    Auto-scroll on
-                  </span>
-                ) : (
-                  <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={scrollToActive}>
-                    <RotateCcw className="h-3 w-3 mr-1" />
-                    Snap to current
-                  </Button>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent>
-              {sortedSentences.length === 0 ? (
-                <div className="text-center py-10 text-muted-foreground">
-                  {sermon.transcriptionStatus === "processing" ? (
-                    <>
-                      <Loader2 className="h-8 w-8 animate-spin mx-auto mb-3" />
-                      <p>Transcribing...</p>
-                    </>
-                  ) : sermon.transcriptionStatus === "pending" ? (
-                    <p>Transcription queued...</p>
-                  ) : (
-                    <p>No transcript available</p>
-                  )}
+            <div>
+              {editingTitle ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={titleInput}
+                    onChange={(e) => setTitleInput(e.target.value)}
+                  />
                 </div>
               ) : (
-                <div
-                  className="space-y-1 overflow-y-auto max-h-[calc(100vh-16rem)] pr-2 scroll-smooth"
-                  ref={transcriptContainerRef}
-                >
-                  {viewMode === "sentence" ? (
-                    // ── Sentence view ──
-                    sortedSentences.map((sentence, idx) => {
-                      const isActive = idx === activeSentenceIdx;
-                      const highlightHex = highlightMap[idx];
-                      const sentComments = (commentsBySentence[idx] ?? []).filter(
-                        (c) => !(hideMyComments && !c.ruleId)
-                      );
-                      const isSelected = selectedRange?.sentenceIdx === idx;
-
-                      return (
-                        <div key={sentence._id} ref={(el) => { sentenceRefs.current[idx] = el; }}>
-                          <div
-                            className={cn(
-                              "px-3 py-1.5 rounded-lg cursor-pointer transition-colors text-base leading-relaxed group",
-                              isActive && "bg-blue-100 dark:bg-blue-900/40 font-medium ring-2 ring-blue-300 dark:ring-blue-700",
-                              !isActive && !highlightHex && "hover:bg-muted/60",
-                              isSelected && "ring-2 ring-primary",
-                              highlightMode && "hover:opacity-80"
-                            )}
-                            style={highlightHex && !isActive ? { backgroundColor: highlightHex + "80" } : undefined}
-                            onClick={() => handleSentenceClick(idx, sentence.startTimeMs, sentence.endTimeMs)}
-                          >
-                            <span className="text-xs text-muted-foreground mr-2 tabular-nums opacity-0 group-hover:opacity-100 transition-opacity">
-                              {formatMs(sentence.startTimeMs)}
-                            </span>
-                            {sentence.sentenceText}
-                            {sentComments.length > 0 && (
-                              <span className="ml-2 inline-flex items-center">
-                                <MessageSquare className="h-3 w-3 text-amber-500" />
-                              </span>
-                            )}
-                          </div>
-
-                          {/* Inline comments */}
-                          {sentComments.length > 0 && (
-                            <div className="ml-4 pl-4 border-l-2 border-amber-400 space-y-2 my-2">
-                              {sentComments.map((c) => (
-                                <div key={c._id} className="bg-amber-50 dark:bg-amber-950/30 rounded-lg p-3 group/comment">
-                                  <div className="flex items-start justify-between gap-2">
-                                    <p className="text-sm leading-relaxed">{c.commentText}</p>
-                                    <Button
-                                      size="icon"
-                                      variant="ghost"
-                                      className="h-6 w-6 shrink-0 opacity-0 group-hover/comment:opacity-100"
-                                      onClick={(e) => { e.stopPropagation(); handleDeleteComment(c._id); }}
-                                    >
-                                      <Trash2 className="h-3 w-3 text-destructive" />
-                                    </Button>
-                                  </div>
-                                  <p className="text-xs text-muted-foreground mt-1">
-                                    {formatMs(c.startTimeMs)} – {formatMs(c.endTimeMs)}
-                                  </p>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })
-                  ) : (
-                    // ── Paragraph view ──
-                    paragraphs.map((para, pIdx) => {
-                      const isActivePara = pIdx === activeParagraphIdx;
-                      const firstSentenceIdx = sortedSentences.indexOf(para[0]);
-
-                      // Collect comments for sentences in this paragraph
-                      const paraComments = para.flatMap((_, sOffset) => {
-                        const idx = firstSentenceIdx + sOffset;
-                        return (commentsBySentence[idx] ?? []).filter(
-                          (c) => !(hideMyComments && !c.ruleId)
-                        );
-                      });
-
-                      return (
-                        <div
-                          key={pIdx}
-                          ref={(el) => { paragraphRefs.current[pIdx] = el; }}
-                          className={cn(
-                            "rounded-xl p-4 mb-3 cursor-pointer transition-all duration-200 border border-transparent",
-                            isActivePara
-                              ? "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800 shadow-sm"
-                              : "hover:bg-muted/40"
-                          )}
-                          onClick={() => {
-                            if (para.length > 0) {
-                              handleSentenceClick(firstSentenceIdx, para[0].startTimeMs, para[para.length - 1].endTimeMs);
-                            }
-                          }}
-                        >
-                          {/* Paragraph timestamp */}
-                          <div className="text-xs text-muted-foreground mb-2 flex items-center gap-2">
-                            <span className="font-mono">{formatMs(para[0].startTimeMs)}</span>
-                            {isActivePara && (
-                              <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
-                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-                                Now playing
-                              </span>
-                            )}
-                          </div>
-
-                          {/* Sentences in paragraph */}
-                          <p className="text-base leading-relaxed">
-                            {para.map((sentence, sOffset) => {
-                              const idx = firstSentenceIdx + sOffset;
-                              const isActiveSentence = idx === activeSentenceIdx;
-                              const highlightHex = highlightMap[idx];
-                              return (
-                                <span
-                                  key={sentence._id}
-                                  className={cn(
-                                    "transition-all duration-100",
-                                    isActiveSentence && "bg-blue-200 dark:bg-blue-800/60 rounded px-0.5 font-medium",
-                                    !isActiveSentence && highlightHex && "rounded px-0.5"
-                                  )}
-                                  style={highlightHex && !isActiveSentence ? { backgroundColor: highlightHex + "80" } : undefined}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleSentenceClick(idx, sentence.startTimeMs, sentence.endTimeMs);
-                                  }}
-                                >
-                                  {sentence.sentenceText}{" "}
-                                </span>
-                              );
-                            })}
-                          </p>
-
-                          {/* Comments on this paragraph */}
-                          {paraComments.length > 0 && (
-                            <div className="mt-3 pl-3 border-l-2 border-amber-400 space-y-2">
-                              {paraComments.map((c) => (
-                                <div key={c._id} className="bg-amber-50 dark:bg-amber-950/30 rounded-lg p-2.5 group/comment">
-                                  <div className="flex items-start justify-between gap-2">
-                                    <p className="text-sm leading-relaxed">{c.commentText}</p>
-                                    <Button
-                                      size="icon"
-                                      variant="ghost"
-                                      className="h-6 w-6 shrink-0 opacity-0 group-hover/comment:opacity-100"
-                                      onClick={(e) => { e.stopPropagation(); handleDeleteComment(c._id); }}
-                                    >
-                                      <Trash2 className="h-3 w-3 text-destructive" />
-                                    </Button>
-                                  </div>
-                                  <p className="text-xs text-muted-foreground mt-1">
-                                    {formatMs(c.startTimeMs)}
-                                  </p>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
+                <div />
               )}
-            </CardContent>
-          </Card>
-
+            </div>
+          </div>
+          {/* Part 2, 3, 4 will fill in the rest */}
         </div>
-
-      </div>
-    </div>
-  );
-}
-
-// ─── Analytics Panel Card ─────────────────────────────────────────────────────
-function AnalyticsPanel({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <Card className="shadow-sm">
-      <CardHeader className="pb-2 pt-3 px-4">
-        <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">{title}</CardTitle>
-      </CardHeader>
-      <CardContent className="px-4 pb-4 pt-0">{children}</CardContent>
-    </Card>
-  );
-}
-
-// ─── Analytics Sidebar Component ──────────────────────────────────────────────
-function AnalyticsSidebar({
-  metrics,
-  sentenceMetricsSorted,
-  fillerWords,
-  silences,
-  longSilences,
-  longestSilence,
-  scriptureRefs,
-  confusingPhrases,
-  accessibilityScore,
-  questions,
-  congregationQuestions,
-  missedQuestions,
-  illustrations,
-  illustrationTypes,
-  intent,
-  avgWpm,
-  wordCount,
-  engagementScore,
-  engagementExpanded,
-  setEngagementExpanded,
-  currentMs,
-  seekTo,
-  coachLoading,
-  coachNotes,
-  coachApplying,
-  hasSentences,
-  onGenerateCoachNotes,
-  onApplyCoachNotes,
-  onDiscardCoachNotes,
-}: {
-  metrics: {
-    wpm?: number | null;
-    wordCount?: number | null;
-    engagementScore?: number | null;
-    illustrationScore?: number | null;
-    emotionalResonanceScore?: number | null;
-    scriptureRefs?: number | null;
-    illustrationCount?: number | null;
-    congregationQuestions?: number | null;
-  } | null | undefined;
-  sentenceMetricsSorted: { wpm: number; startTimeMs: number }[];
-  fillerWords: { _id: string; word: string; count: number }[];
-  silences: { _id: string; startTimeMs: number; endTimeMs: number; durationMs: number }[];
-  longSilences: { _id: string; startTimeMs: number; endTimeMs: number; durationMs: number }[];
-  longestSilence: number;
-  scriptureRefs: { _id: string; reference: string; context: string; startTimeMs: number }[];
-  confusingPhrases: { _id: string; phrase: string; severity: string; suggestion: string; startTimeMs: number }[];
-  accessibilityScore: number;
-  questions: { _id: string; questionText: string; isCongregationQuestion: boolean; startTimeMs: number }[];
-  congregationQuestions: { _id: string; questionText: string; isCongregationQuestion: boolean; startTimeMs: number }[];
-  missedQuestions: { _id: string; originalText: string; suggestedQuestion: string; startTimeMs: number }[];
-  illustrations: { _id: string; type: string; description: string; startTimeMs: number }[];
-  illustrationTypes: Record<string, number>;
-  intent: { know: string; feel: string; doAction: string; emotionalTone: string; headHeartRatio: number } | null | undefined;
-  avgWpm: number | null;
-  wordCount: number | null;
-  engagementScore: number | null;
-  engagementExpanded: boolean;
-  setEngagementExpanded: (v: boolean) => void;
-  currentMs: number;
-  seekTo: (ms: number) => void;
-  coachLoading: boolean;
-  coachNotes: Array<{ sentence_index: number; category?: string; comment_text: string; start_time_ms: number; end_time_ms: number }> | null;
-  coachApplying: boolean;
-  hasSentences: boolean;
-  onGenerateCoachNotes: () => void;
-  onApplyCoachNotes: () => void;
-  onDiscardCoachNotes: () => void;
-}) {
-  return (
-    <div className="space-y-4">
-      {/* ── Engagement Score ── full width */}
-      <AnalyticsPanel title="Engagement Score">
-        {metrics === undefined ? (
-          <AnalyticsSkeleton />
-        ) : metrics === null ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Analyzing...
-          </div>
-        ) : (
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-4xl font-bold text-amber-600">
-                {engagementScore !== null ? engagementScore.toFixed(1) : "—"}
-                <span className="text-base text-muted-foreground font-normal">/10</span>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs px-2"
-                onClick={() => setEngagementExpanded(!engagementExpanded)}
-              >
-                {engagementExpanded ? "Collapse" : "Details"}
-              </Button>
-            </div>
-            {engagementScore !== null && (
-              <Progress value={(engagementScore / 10) * 100} className="h-2 mb-3" />
-            )}
-            {engagementExpanded && (
-              <div className="space-y-2 border-t pt-3">
-                {[
-                  { label: "🎭 Stories & Illustrations", value: metrics.illustrationScore },
-                  { label: "❤️ Emotional Resonance", value: metrics.emotionalResonanceScore },
-                  { label: "📖 Scripture", value: metrics.scriptureRefs ? Math.min(10, metrics.scriptureRefs * 1.5) : null },
-                  { label: "🎤 Engagement", value: engagementScore },
-                ].map(({ label, value }) => (
-                  <div key={label} className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">{label}</span>
-                    <div className="flex items-center gap-2">
-                      <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className={cn(
-                            "h-full rounded-full",
-                            value === null || value === undefined ? "bg-muted-foreground/30" :
-                            value >= 7 ? "bg-emerald-500" : value >= 4 ? "bg-amber-500" : "bg-red-500"
-                          )}
-                          style={{ width: value !== null && value !== undefined ? `${(value / 10) * 100}%` : "0%" }}
-                        />
-                      </div>
-                      <span className="font-medium w-5 text-right">
-                        {value !== null && value !== undefined ? value.toFixed(1) : "—"}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </AnalyticsPanel>
-
-      {/* ── 3-column grid for remaining panels ── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      {/* ── Speaking Pace / WPM ── */}
-      <AnalyticsPanel title="Speaking Pace">
-        {metrics === undefined ? (
-          <AnalyticsSkeleton />
-        ) : (
-          <div>
-            <div className="text-3xl font-bold text-primary">
-              {avgWpm !== null ? `${avgWpm} WPM` : "—"}
-            </div>
-            {wordCount !== null && (
-              <p className="text-sm text-muted-foreground mt-1">
-                {wordCount.toLocaleString()} words total
-              </p>
-            )}
-            {sentenceMetricsSorted.length >= 2 && (
-              <WpmSparkline
-                data={sentenceMetricsSorted}
-                currentMs={currentMs}
-                onSeek={seekTo}
-              />
-            )}
-            {avgWpm !== null && (
-              <p className="text-xs text-muted-foreground mt-2">
-                {avgWpm < 120
-                  ? "⚠️ Slower than ideal — consider picking up the pace"
-                  : avgWpm > 180
-                  ? "⚠️ Fast pace — listeners may struggle to keep up"
-                  : "✅ Good pace for comprehension (120–180 WPM)"}
-              </p>
-            )}
-          </div>
-        )}
-      </AnalyticsPanel>
-
-      {/* ── Filler Words ── */}
-      <AnalyticsPanel title="Filler Words">
-        {fillerWords === undefined ? (
-          <AnalyticsSkeleton />
-        ) : fillerWords.length === 0 ? (
-          <p className="text-sm text-muted-foreground">None detected</p>
-        ) : (
-          <div className="space-y-2">
-            <p className="text-xs text-muted-foreground mb-2">
-              {fillerWords.reduce((s, fw) => s + fw.count, 0)} total filler words
-            </p>
-            {[...fillerWords]
-              .sort((a, b) => b.count - a.count)
-              .map((fw) => (
-                <div key={fw._id} className="flex items-center justify-between">
-                  <span className="text-sm">"{fw.word}"</span>
-                  <Badge variant="secondary">{fw.count}×</Badge>
-                </div>
-              ))}
-          </div>
-        )}
-      </AnalyticsPanel>
-
-      {/* ── Use of Silence ── */}
-      <AnalyticsPanel title="Use of Silence">
-        {silences === undefined ? (
-          <AnalyticsSkeleton />
-        ) : (
-          <div>
-            <div className="grid grid-cols-2 gap-3 mb-3">
-              <div className="bg-muted rounded-lg p-3 text-center">
-                <div className="text-2xl font-bold">{longSilences.length}</div>
-                <div className="text-xs text-muted-foreground">Pauses ≥ 3s</div>
-              </div>
-              <div className="bg-muted rounded-lg p-3 text-center">
-                <div className="text-2xl font-bold">
-                  {longestSilence > 0 ? `${(longestSilence / 1000).toFixed(1)}s` : "—"}
-                </div>
-                <div className="text-xs text-muted-foreground">Longest pause</div>
-              </div>
-            </div>
-            {longSilences.length > 0 && (
-              <div className="space-y-1 max-h-32 overflow-y-auto">
-                {longSilences.map((s) => (
-                  <button
-                    key={s._id}
-                    className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted transition-colors flex items-center justify-between"
-                    onClick={() => seekTo(s.startTimeMs)}
-                  >
-                    <span className="text-muted-foreground">{formatMs(s.startTimeMs)}</span>
-                    <span className="font-medium">{(s.durationMs / 1000).toFixed(1)}s pause</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            {longSilences.length === 0 && (
-              <p className="text-sm text-muted-foreground">No significant pauses detected</p>
-            )}
-          </div>
-        )}
-      </AnalyticsPanel>
-
-      {/* ── Scripture References ── */}
-      <AnalyticsPanel title="Scripture References">
-        {scriptureRefs === undefined ? (
-          <AnalyticsSkeleton />
-        ) : scriptureRefs.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No scripture references detected</p>
-        ) : (
-          <div>
-            <p className="text-sm text-muted-foreground mb-2">
-              {scriptureRefs.length} reference{scriptureRefs.length !== 1 ? "s" : ""} found
-            </p>
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {scriptureRefs.map((ref) => (
-                <button
-                  key={ref._id}
-                  className="w-full text-left rounded-lg border p-2.5 hover:bg-muted transition-colors"
-                  onClick={() => seekTo(ref.startTimeMs)}
-                >
-                  <div className="font-medium text-sm text-emerald-700 dark:text-emerald-400">{ref.reference}</div>
-                  {ref.context && (
-                    <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{ref.context}</div>
-                  )}
-                  <div className="text-xs text-primary mt-1">{formatMs(ref.startTimeMs)}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </AnalyticsPanel>
-
-      {/* ── Insider Language ── */}
-      <AnalyticsPanel title="Insider Language">
-        {confusingPhrases === undefined ? (
-          <AnalyticsSkeleton />
-        ) : (
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm text-muted-foreground">
-                {confusingPhrases.length} flagged phrase{confusingPhrases.length !== 1 ? "s" : ""}
-              </span>
-              <div className="text-right">
-                <div className="text-sm font-medium">
-                  Accessibility: {accessibilityScore.toFixed(1)}/10
-                </div>
-                <Progress value={accessibilityScore * 10} className="h-1.5 w-20 mt-1" />
-              </div>
-            </div>
-            {confusingPhrases.length === 0 ? (
-              <p className="text-sm text-muted-foreground">✅ No insider language detected</p>
-            ) : (
-              <div className="space-y-3 max-h-48 overflow-y-auto">
-                {confusingPhrases.map((p) => (
-                  <div key={p._id} className="border rounded-lg p-2.5 space-y-1.5">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium text-sm">"{p.phrase}"</span>
-                      <SeverityBadge severity={p.severity} />
-                    </div>
-                    <p className="text-xs text-muted-foreground">💡 {p.suggestion}</p>
-                    <button
-                      className="text-xs text-primary hover:underline"
-                      onClick={() => seekTo(p.startTimeMs)}
-                    >
-                      {formatMs(p.startTimeMs)}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </AnalyticsPanel>
-
-      {/* ── Questions ── */}
-      <AnalyticsPanel title="Questions">
-        {questions === undefined ? (
-          <AnalyticsSkeleton />
-        ) : questions.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No questions detected</p>
-        ) : (
-          <div>
-            <p className="text-sm text-muted-foreground mb-2">
-              {congregationQuestions.length} congregation · {questions.length} total
-            </p>
-            <div className="space-y-1.5 max-h-40 overflow-y-auto">
-              {congregationQuestions.map((q) => (
-                <button
-                  key={q._id}
-                  className="w-full text-left rounded-lg border border-blue-200 dark:border-blue-800 p-2.5 hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors"
-                  onClick={() => seekTo(q.startTimeMs)}
-                >
-                  <p className="text-sm line-clamp-2">{q.questionText}</p>
-                  <span className="text-xs text-primary mt-0.5 block">{formatMs(q.startTimeMs)}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </AnalyticsPanel>
-
-      {/* ── Missed Question Opportunities ── */}
-      <AnalyticsPanel title="Missed Question Opportunities">
-        {missedQuestions === undefined ? (
-          <AnalyticsSkeleton />
-        ) : missedQuestions.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No missed opportunities found</p>
-        ) : (
-          <div className="space-y-3 max-h-48 overflow-y-auto">
-            {missedQuestions.map((mq) => (
-              <div key={mq._id} className="border rounded-lg p-2.5 space-y-1.5">
-                <p className="text-xs text-muted-foreground italic line-clamp-2">"{mq.originalText}"</p>
-                <p className="text-sm font-medium">→ {mq.suggestedQuestion}</p>
-                <button
-                  className="text-xs text-primary hover:underline"
-                  onClick={() => seekTo(mq.startTimeMs)}
-                >
-                  {formatMs(mq.startTimeMs)}
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </AnalyticsPanel>
-
-      {/* ── Stories & Illustrations ── */}
-      <AnalyticsPanel title="Stories & Illustrations">
-        {illustrations === undefined ? (
-          <AnalyticsSkeleton />
-        ) : illustrations.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No illustrations detected</p>
-        ) : (
-          <div>
-            <div className="flex flex-wrap gap-2 mb-3">
-              {Object.entries(illustrationTypes).map(([type, count]) => (
-                <Badge key={type} variant="secondary">
-                  {type}: {count}
-                </Badge>
-              ))}
-            </div>
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {illustrations.map((ill) => (
-                <button
-                  key={ill._id}
-                  className="w-full text-left rounded-lg border p-2.5 hover:bg-muted transition-colors"
-                  onClick={() => seekTo(ill.startTimeMs)}
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <Badge variant="outline" className="text-xs">{ill.type}</Badge>
-                    <span className="text-xs text-primary">{formatMs(ill.startTimeMs)}</span>
-                  </div>
-                  <p className="text-sm text-muted-foreground line-clamp-2">{ill.description}</p>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </AnalyticsPanel>
-
-      {/* ── Preacher’s Intent ── */}
-      <AnalyticsPanel title="Preacher’s Intent">
-        {intent === undefined ? (
-          <AnalyticsSkeleton />
-        ) : intent === null ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Analyzing intent...
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="grid grid-cols-1 gap-2">
-              {[
-                { label: "Know", value: intent.know, color: "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800" },
-                { label: "Feel", value: intent.feel, color: "bg-pink-50 dark:bg-pink-950/30 border-pink-200 dark:border-pink-800" },
-                { label: "Do", value: intent.doAction, color: "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800" },
-              ].map(({ label, value, color }) => (
-                <div key={label} className={cn("rounded-lg border p-2.5", color)}>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
-                    {label}
-                  </div>
-                  <p className="text-sm">{value}</p>
-                </div>
-              ))}
-            </div>
-            {intent.emotionalTone && (
-              <div>
-                <div className="text-xs text-muted-foreground mb-1">Emotional Tone</div>
-                <Badge variant="secondary">{intent.emotionalTone}</Badge>
-              </div>
-            )}
-            <div>
-              <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-                <span>🧠 Head (logic)</span>
-                <span>❤️ Heart (emotion)</span>
-              </div>
-              <Progress
-                value={Math.round((1 - intent.headHeartRatio) * 100)}
-                className="h-2"
-              />
-              <div className="flex items-center justify-between text-xs mt-1">
-                <span>{Math.round(intent.headHeartRatio * 100)}% head</span>
-                <span>{Math.round((1 - intent.headHeartRatio) * 100)}% heart</span>
-              </div>
-            </div>
-          </div>
-        )}
-      </AnalyticsPanel>
-
-      {/* ── Digital Bert AI Coach ── */}
-      <AnalyticsPanel title="Digital Bert — AI Coach">
-        <div className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            AI reviews this sermon&apos;s transcript and writes timestamped coaching notes in your voice.
-          </p>
-          <Button
-            onClick={onGenerateCoachNotes}
-            disabled={coachLoading || !hasSentences}
-            variant="outline"
-            size="sm"
-            className="w-full"
-          >
-            {coachLoading ? (
-              <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Reviewing sermon...</>
-            ) : (
-              <><Sparkles className="mr-2 h-4 w-4" />{coachNotes ? "Re-generate notes" : "Generate AI Coach notes"}</>
-            )}
-          </Button>
-
-          {coachNotes && coachNotes.length > 0 ? (
-            <>
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {coachNotes.map((n, i) => {
-                  const ms = n.start_time_ms || 0;
-                  const ts = formatMsLong(ms);
-                  return (
-                    <div key={i} className="rounded-lg border border-border/60 bg-muted/30 p-3">
-                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                        <Badge variant="default" className="font-mono text-[10px]">#{i + 1}</Badge>
-                        <Badge variant="outline" className="font-mono text-[10px]">{ts}</Badge>
-                        {n.category && (
-                          <Badge variant="secondary" className="text-[10px] capitalize">{n.category}</Badge>
-                        )}
-                        <button
-                          className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline ml-auto"
-                          onClick={() => seekTo(ms)}
-                        >
-                          Jump to moment
-                        </button>
-                      </div>
-                      <p className="text-sm leading-relaxed">{n.comment_text}</p>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="flex items-center justify-end gap-2 pt-2 border-t">
-                <Button variant="ghost" size="sm" onClick={onDiscardCoachNotes} disabled={coachApplying}>
-                  Discard
-                </Button>
-                <Button size="sm" onClick={onApplyCoachNotes} disabled={coachApplying}>
-                  {coachApplying ? (
-                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Applying...</>
-                  ) : (
-                    `Apply ${coachNotes.length} as comments`
-                  )}
-                </Button>
-              </div>
-            </>
-          ) : coachNotes !== null ? (
-            <p className="text-sm text-muted-foreground text-center py-2">
-              No notes generated. Check that ANTHROPIC_API_KEY is configured and try re-running analysis.
-            </p>
-          ) : null}
-        </div>
-      </AnalyticsPanel>
       </div>
     </div>
   );
