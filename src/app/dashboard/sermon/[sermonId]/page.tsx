@@ -2077,6 +2077,21 @@ export default function SermonViewer() {
     }
   };
 
+  const handleEvaluate = async () => {
+    if (selectedRuleIds.length === 0) {
+      toast.error("No rules selected: Please select at least one rule");
+      return;
+    }
+    setEvaluating(true);
+    try {
+      toast.info("This feature requires server configuration"); return;
+    } catch (error: any) {
+      toast.error("Evaluation failed: " + error.message);
+    } finally {
+      setEvaluating(false);
+    }
+  };
+
   const [transcribingCommentId, setTranscribingCommentId] = useState<string | null>(null);
 
   const handleTranscribeComment = async (comment: Comment) => {
@@ -4543,8 +4558,1083 @@ export default function SermonViewer() {
           )}
         </Card>
 
-        {/* Part 4 will add transcript + sidebar here */}
+        <div className="flex gap-4">
+        {/* Stationary sidebar panel */}
+        <div className="sticky top-4 self-start shrink-0 w-44">
+          <Card className="p-4 space-y-4">
+            {/* Comment count */}
+            <div className="text-center">
+              <div className="text-3xl font-bold text-primary">{comments.filter(c => !c.ruleId).length}</div>
+              <div className="text-xs text-muted-foreground">Comments</div>
+            </div>
+
+            {comments.filter(c => !c.ruleId).length > 0 && (
+              <div className="flex items-center justify-center gap-2">
+                <Switch
+                  id="hide-my-comments"
+                  checked={hideMyComments}
+                  onCheckedChange={setHideMyComments}
+                />
+                <label
+                  htmlFor="hide-my-comments"
+                  className="text-xs text-muted-foreground cursor-pointer"
+                >
+                  Hide mine
+                </label>
+              </div>
+            )}
+
+            <div className="border-t border-border" />
+            
+            {/* Time since last comment */}
+            <div className="text-center">
+              {timeSinceLastCommentInAudio !== null ? (
+                <>
+                  <div className="text-2xl font-mono font-bold text-foreground">
+                    {Math.floor(timeSinceLastCommentInAudio / 60)}:{String(timeSinceLastCommentInAudio % 60).padStart(2, '0')}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Since last comment</div>
+                </>
+              ) : (
+                <>
+                  <div className="text-2xl font-mono font-bold text-muted-foreground/50">--:--</div>
+                  <div className="text-xs text-muted-foreground">Since last comment</div>
+                </>
+              )}
+            </div>
+            
+            <div className="border-t border-border" />
+            
+            {/* Playback speed controls */}
+            <div className="text-center space-y-2">
+              <div className="text-xs text-muted-foreground">Playback Speed</div>
+              <div className="flex items-center justify-center gap-1">
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="h-7 w-7"
+                  onClick={() => {
+                    const speeds = [0.5, 1, 1.25, 1.35, 1.5, 1.65, 1.75, 1.85, 2, 2.5];
+                    const currentIdx = speeds.indexOf(playbackRate);
+                    if (currentIdx > 0) setPlaybackRate(speeds[currentIdx - 1]);
+                  }}
+                  disabled={playbackRate <= 0.5}
+                >
+                  <span className="text-xs font-bold">−</span>
+                </Button>
+                <span className="text-lg font-mono font-bold text-foreground min-w-[3rem]">
+                  {playbackRate}x
+                </span>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="h-7 w-7"
+                  onClick={() => {
+                    const speeds = [0.5, 1, 1.25, 1.35, 1.5, 1.65, 1.75, 1.85, 2, 2.5];
+                    const currentIdx = speeds.indexOf(playbackRate);
+                    if (currentIdx < speeds.length - 1) setPlaybackRate(speeds[currentIdx + 1]);
+                  }}
+                  disabled={playbackRate >= 2.5}
+                >
+                  <span className="text-xs font-bold">+</span>
+                </Button>
+              </div>
+            </div>
+
+            <div className="border-t border-border" />
+
+            {/* Highlighter controls */}
+            <div className="text-center space-y-2">
+              <div className="text-xs text-muted-foreground">Highlighter</div>
+              <Button
+                variant={highlightMode ? "default" : "outline"}
+                size="sm"
+                onClick={() => setHighlightMode(!highlightMode)}
+                className="w-full"
+              >
+                <Highlighter className="h-4 w-4 mr-2" />
+                {highlightMode ? "Done" : "Highlight"}
+              </Button>
+              {highlightMode && (
+                <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                  {HIGHLIGHT_COLORS.map(color => (
+                    <button
+                      key={color}
+                      className={`w-6 h-6 rounded-full border-2 transition-transform ${activeHighlightColor === color ? 'scale-125 border-foreground' : 'border-transparent'}`}
+                      style={{ backgroundColor: color }}
+                      onClick={() => setActiveHighlightColor(color)}
+                    />
+                  ))}
+            </div>
+              )}
+            </div>
+
+            <div className="border-t border-border" />
+
+            {/* View Mode Toggle */}
+            <div className="text-center space-y-2">
+              <div className="text-xs text-muted-foreground">View Mode</div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => setViewMode(viewMode === "sentence" ? "paragraph" : "sentence")}
+              >
+                {viewMode === "sentence" ? <AlignLeft className="h-4 w-4 mr-2" /> : <List className="h-4 w-4 mr-2" />}
+                {viewMode === "sentence" ? "Paragraph View" : "Sentence View"}
+              </Button>
+            </div>
+
+            {userScrolledAway && (
+              <>
+                <div className="border-t border-border" />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-xs"
+                  onClick={scrollToActiveParagraph}
+                >
+                  <RotateCcw className="h-3 w-3 mr-1" />
+                  Return to current
+                </Button>
+              </>
+            )}
+          </Card>
+        </div>
+        
+        <Card className="p-6 flex-1 min-w-0">
+          <div className="space-y-4 overflow-y-auto overflow-x-hidden scroll-smooth transcript-parallax max-h-[calc(100vh-4rem)] pr-4" ref={transcriptContainerRef}>
+            {/* Intro comment section at top - scrolls with transcript */}
+            <div className="flex flex-col gap-2 mb-4 pb-4 border-b border-dashed border-border">
+              {/* Show existing intro comment if there is one */}
+              {comments.filter(c => c.startTimeMs === 0 && c.endTimeMs === 0 && !(hideMyComments && !c.ruleId && !/^\s*\[AI Coach\]/i.test(c.commentText || ""))).map((comment) => (
+                <div 
+                  key={comment._id}
+                  className="p-3 rounded-lg bg-accent/10 border border-accent/30"
+                >
+                  <div className="flex items-start gap-2">
+                    <Badge variant="outline" className="text-xs bg-accent/20">
+                      Intro
+                    </Badge>
+                    <p className="flex-1 text-sm font-bold">{comment.commentText}</p>
+                    {comment.audioUrl && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          
+                          if (playingCommentId === comment._id && commentAudioRef.current) {
+                            if (commentAudioRef.current.paused) {
+                              commentAudioRef.current.play().catch(() => {});
+                            } else {
+                              commentAudioRef.current.pause();
+                            }
+                            return;
+                          }
+                          
+                          stopCommentAudio();
+                          if (audioRef.current) {
+                            audioRef.current.pause();
+                          }
+                          
+                          setPlayingCommentId(comment._id);
+                          
+                          const url = await resolveCommentAudioUrl(comment);
+                          
+                          if (url) {
+                            const audio = new Audio(url);
+                            audio.playbackRate = playbackRate;
+                            audio.volume = commentVolume;
+                            fixWebmDuration(audio);
+                            commentAudioRef.current = audio;
+                            let handled = false;
+                            const cleanup = () => {
+                              if (handled) return;
+                              handled = true;
+                              setPlayingCommentId(null);
+                              commentAudioRef.current = null;
+                            };
+                            audio.onended = cleanup;
+                            audio.onerror = () => {
+                              const mediaError = audio.error;
+                              if (mediaError && mediaError.code !== MediaError.MEDIA_ERR_ABORTED) {
+                                console.error('Comment playback error:', mediaError.code, mediaError.message);
+                                cleanup();
+                              }
+                            };
+                            try {
+                              await audio.play();
+                            } catch (err: any) {
+                              if (err.name !== 'AbortError') {
+                                console.error('Comment audio.play() failed:', err);
+                                cleanup();
+                              }
+                            }
+                          }
+                        }}
+                      >
+                        {playingCommentId === comment._id ? (
+                          <Pause className="h-4 w-4" />
+                        ) : (
+                          <Play className="h-4 w-4" />
+                        )}
+                      </Button>
+                    )}
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 text-destructive hover:text-destructive"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (confirm("Delete this comment?")) {
+                          await handleDeleteComment(comment._id as string);
+                        }
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              
+              {/* Add intro comment button */}
+              <div className="flex justify-center">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="rounded-full h-8 px-4 bg-background shadow-sm border-dashed"
+                  onClick={() => openCommentDialog(0, 0)}
+                >
+                  <MessageSquare className="h-3 w-3 mr-2" />
+                  <span className="text-xs">Add intro comment</span>
+                </Button>
+              </div>
+            </div>
+            {viewMode === "sentence" ? (
+              sentences.map((sentence) => (
+                <div
+                  key={sentence._id}
+                  className={`p-3 rounded-lg transition-colors cursor-pointer ${
+                    isCurrentSentence(sentence)
+                      ? "bg-primary/10 border border-primary"
+                      : showQuestions && sentence.sentenceText.trim().endsWith('?') && !isSentenceInScripture(sentence.sentenceText, sentences.indexOf(sentence)) && (!congregationQuestionIndices || congregationQuestionIndices.has(sentences.indexOf(sentence)))
+                        ? "bg-amber-100 border border-amber-300"
+                        : showMissedQuestions && missedQuestionsData?.opportunities.some(o => o.index === sentences.indexOf(sentence))
+                          ? "bg-rose-100 border border-rose-300 dark:bg-rose-950/30 dark:border-rose-700"
+                          : "hover:bg-muted"
+                  }`}
+                  onClick={() => seekTo(sentence.startTimeMs)}
+                >
+                  <div className="flex items-start gap-2">
+                    <Badge variant="outline" className="text-xs">
+                      {Math.floor(sentence.startTimeMs / 1000 / 60)}:
+                      {String(Math.floor((sentence.startTimeMs / 1000) % 60)).padStart(2, "0")}
+                    </Badge>
+                    <p className="flex-1">{sentence.sentenceText}</p>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openCommentDialog(sentence.startTimeMs, sentence.endTimeMs);
+                      }}
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  {getCommentsForRange(sentence.startTimeMs, sentence.endTimeMs).map((comment) => (
+                    <div
+                      key={comment._id}
+                      className="mt-2 p-2 rounded"
+                      style={{
+                        backgroundColor: rules.find(r => r._id === comment.ruleId)?.color
+                          ? `${rules.find(r => r._id === comment.ruleId)!.color}20`
+                          : "hsl(var(--muted))",
+                        borderLeft: rules.find(r => r._id === comment.ruleId)?.color
+                          ? `3px solid ${rules.find(r => r._id === comment.ruleId)!.color}`
+                          : "3px solid hsl(var(--border))",
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1">
+                          {comment.ruleId && rules.find(r => r._id === comment.ruleId) && (
+                            <Badge
+                              variant="outline"
+                              className="mb-1"
+                              style={{ borderColor: rules.find(r => r._id === comment.ruleId)!.color }}
+                            >
+                              {rules.find(r => r._id === comment.ruleId)!.name}
+                            </Badge>
+                          )}
+                          <p className="text-sm font-bold">{comment.commentText}</p>
+                          {comment.audioUrl && comment.commentText === "Audio comment" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="mt-1"
+                              onClick={() => handleTranscribeComment(comment)}
+                              disabled={transcribingCommentId === comment._id}
+                            >
+                              {transcribingCommentId === comment._id ? (
+                                <>
+                                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                  Transcribing...
+                                </>
+                              ) : (
+                                <>
+                                  <FileText className="mr-1 h-3 w-3" />
+                                  Transcribe
+                                </>
+                              )}
+                            </Button>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {comment.audioUrl && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                
+                                // If this comment is already playing, toggle pause/play
+                                if (playingCommentId === comment._id && commentAudioRef.current) {
+                                  if (commentAudioRef.current.paused) {
+                                    commentAudioRef.current.play().catch(() => {});
+                                  } else {
+                                    commentAudioRef.current.pause();
+                                  }
+                                  return;
+                                }
+                                
+                                // Stop any current audio
+                                stopCommentAudio();
+                                if (audioRef.current) {
+                                  audioRef.current.pause();
+                                }
+                                
+                                setPlayingCommentId(comment._id);
+                                
+                                const url = await resolveCommentAudioUrl(comment);
+                                
+                                if (url) {
+                                  const audio = new Audio(url);
+                                  audio.playbackRate = playbackRate;
+                                  audio.volume = commentVolume;
+                                  fixWebmDuration(audio);
+                                  commentAudioRef.current = audio;
+                                  let handled = false;
+                                  const cleanup = () => {
+                                    if (handled) return;
+                                    handled = true;
+                                    setPlayingCommentId(null);
+                                    commentAudioRef.current = null;
+                                  };
+                                  audio.onended = cleanup;
+                                  audio.onerror = () => {
+                                    const mediaError = audio.error;
+                                    if (mediaError && mediaError.code !== MediaError.MEDIA_ERR_ABORTED) {
+                                      console.error('Comment playback error:', mediaError.code, mediaError.message);
+                                      cleanup();
+                                    }
+                                  };
+                                  try {
+                                    await audio.play();
+                                  } catch (err: any) {
+                                    if (err.name !== 'AbortError') {
+                                      console.error('Comment audio.play() failed:', err);
+                                      cleanup();
+                                    }
+                                  }
+                                }
+                              }}
+                            >
+                              {playingCommentId === comment._id ? (
+                                <Pause className="h-4 w-4" />
+                              ) : (
+                                <Play className="h-4 w-4" />
+                              )}
+                            </Button>
+                          )}
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteComment(comment._id);
+                            }}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))
+            ) : (
+              groupIntoParagraphs(sentences).map((paragraph, idx, allParagraphs) => {
+                const firstSentence = paragraph[0];
+                const lastSentence = paragraph[paragraph.length - 1];
+                // Use next paragraph's first sentence start as the upper boundary to cover inter-sentence gaps
+                const nextParagraph = allParagraphs[idx + 1];
+                const rangeEnd = nextParagraph ? nextParagraph[0].startTimeMs : lastSentence.endTimeMs + 60000;
+                const hasAudioComment = comments.some(
+                  c => c.audioUrl && c.startTimeMs >= firstSentence.startTimeMs && c.startTimeMs < rangeEnd
+                );
+                const hasPeak = showVolumeChanges && paragraphHasPeak(paragraph);
+                const isFastSpeech = hasFastSpeechRate(paragraph, fastSpeechThreshold);
+                
+                // Determine active analytics highlights
+                const isSlowSpeech = showSlowSpeech && getSlowSpeechParagraphs(slowSpeechThreshold).some(
+                  p => p[0].startTimeMs === firstSentence.startTimeMs
+                );
+                
+                // Find which filler word this paragraph contains (for color matching)
+                let verbalPauseColor = null;
+                if (showVerbalPauses) {
+                  const topFillers = getTopFillerWords();
+                  for (const filler of topFillers) {
+                    if (visibleFillerWords.has(filler.word)) {
+                      const hasThisFiller = paragraph.some(s => 
+                        s.sentenceText.toLowerCase().includes(filler.word.toLowerCase())
+                      );
+                      if (hasThisFiller) {
+                        verbalPauseColor = filler.color;
+                        break;
+                      }
+                    }
+                  }
+                }
+                const hasVerbalPause = verbalPauseColor !== null;
+                
+                // Find which insider term this paragraph contains (for color matching)
+                let insiderTermColor = null;
+                if (showInsiderLanguage) {
+                  const topTerms = getTopInsiderTerms();
+                  // When the master toggle is on, treat every top term as visible by default.
+                  // The per-term checkboxes only narrow the set when at least one is selected.
+                  const anyTermSelected = visibleInsiderTerms.size > 0;
+                  for (const term of topTerms) {
+                    if (!anyTermSelected || visibleInsiderTerms.has(term.word)) {
+                      const regex = new RegExp(`\\b${term.word.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\b`, 'gi');
+                      const hasThisTerm = paragraph.some(s => regex.test(s.sentenceText));
+                      if (hasThisTerm) {
+                        insiderTermColor = term.color;
+                        break;
+                      }
+                    }
+                  }
+                }
+                const hasInsiderTerm = insiderTermColor !== null;
+                
+                const hasVolumeChange = showVolumeChanges && getParagraphVolumeLevel(paragraph) !== 0;
+                const isActiveFastSpeech = showFastSpeech && isFastSpeech;
+                const hasScripture = paragraphContainsScripture(paragraph);
+                
+                // Check if paragraph contains confusing phrases
+                const hasConfusing = showConfusingPhrases && confusingPhrases && confusingPhrases.some((p: ConfusingPhrase) => {
+                  return paragraph.some(s => s.startTimeMs === p.startTimeMs);
+                });
+
+                // Map of sentence index -> missed-question opportunity for fast lookup
+                const missedByIdx = new Map<number, { suggested_question: string; reason?: string }>();
+                if (showMissedQuestions && missedQuestionsData) {
+                  for (const opp of missedQuestionsData.opportunities) {
+                    missedByIdx.set(opp.index, { suggested_question: opp.suggested_question, reason: opp.reason });
+                  }
+                }
+                const hasMissedQuestion = paragraph.some(s => missedByIdx.has(sentences.indexOf(s)));
+                
+                // Determine highlight color and style based on active analytics
+                let highlightStyle = "hover:bg-muted";
+                let customStyle: React.CSSProperties = {};
+                
+                if (isCurrentParagraph(paragraph)) {
+                  highlightStyle = "bg-primary/10 border border-primary";
+                } else if (previewingParagraph === idx) {
+                  highlightStyle = "bg-accent/20 border border-accent";
+                } else if (isActiveFastSpeech) {
+                  highlightStyle = "border-2 hover:opacity-90 transition-all";
+                  customStyle = {
+                    backgroundColor: '#d946ef80',
+                    borderColor: '#d946ef'
+                  };
+                } else if (isSlowSpeech) {
+                  highlightStyle = "border-2 hover:opacity-90 transition-all";
+                  customStyle = {
+                    backgroundColor: '#06b6d480',
+                    borderColor: '#06b6d4'
+                  };
+                } else if (hasVolumeChange) {
+                  highlightStyle = "border-2 hover:opacity-90 transition-all";
+                  customStyle = {
+                    backgroundColor: '#f59e0b80',
+                    borderColor: '#f59e0b'
+                  };
+                } else if (hasVerbalPause && verbalPauseColor) {
+                  highlightStyle = "border-2 hover:opacity-90 transition-all";
+                  customStyle = {
+                    backgroundColor: `${verbalPauseColor}80`,
+                    borderColor: verbalPauseColor
+                  };
+                } else if (hasInsiderTerm && insiderTermColor) {
+                  highlightStyle = "border-2 hover:opacity-90 transition-all";
+                  customStyle = {
+                    backgroundColor: `${insiderTermColor}80`,
+                    borderColor: insiderTermColor
+                  };
+                } else if (hasScripture) {
+                  highlightStyle = "border-2 hover:opacity-90 transition-all";
+                  customStyle = {
+                    backgroundColor: '#10b98180',
+                    borderColor: '#10b981'
+                  };
+                } else if (hasConfusing) {
+                  highlightStyle = "border-2 hover:opacity-90 transition-all";
+                  customStyle = {
+                    backgroundColor: '#ef444440',
+                    borderColor: '#ef4444'
+                  };
+                } else if (hasPeak) {
+                  highlightStyle = "bg-orange-500/20 border border-orange-500/50 hover:bg-orange-500/30";
+                } else if (showQuestions && paragraph.some(s => {
+                  if (!s.sentenceText.trim().endsWith('?')) return false;
+                  if (isSentenceInScripture(s.sentenceText, sentences.indexOf(s))) return false;
+                  if (congregationQuestionIndices && !congregationQuestionIndices.has(sentences.indexOf(s))) return false;
+                  return true;
+                })) {
+                  highlightStyle = "border-2 hover:opacity-90 transition-all";
+                  customStyle = {
+                    backgroundColor: '#f59e0b40',
+                    borderColor: '#f59e0b'
+                  };
+                } else if (hasMissedQuestion) {
+                  highlightStyle = "border-2 hover:opacity-90 transition-all";
+                  customStyle = {
+                    backgroundColor: '#f43f5e26',
+                    borderColor: '#f43f5e'
+                  };
+                }
+                
+                return (
+                  <div
+                    key={idx}
+                    ref={el => { paragraphRefs.current[idx] = el; }}
+                    className={`transcript-paragraph p-4 rounded-xl transition-all duration-200 cursor-pointer relative group shadow-sm hover:shadow-md ${highlightStyle}`}
+                    style={customStyle}
+                    onClick={() => {
+                      // Treat the click as a play/pause toggle if the playhead is anywhere
+                      // inside this paragraph's extended range (start → next paragraph's start).
+                      // This avoids seeking backward when the playhead has drifted into the
+                      // gap between this paragraph and the next one.
+                      const isWithinRange =
+                        currentTime >= firstSentence.startTimeMs && currentTime < rangeEnd;
+                      if (isWithinRange) {
+                        if (playing) {
+                          audioRef.current?.pause();
+                        } else {
+                          audioRef.current?.play().catch(() => {});
+                        }
+                      } else {
+                        seekTo(firstSentence.startTimeMs);
+                        if (!playing) {
+                          audioRef.current?.play().catch(() => {});
+                        }
+                      }
+                    }}
+                  >
+                    {hasAudioComment && (
+                      <Badge variant="outline" className="absolute top-2 right-2 text-xs">
+                        <Play className="h-3 w-3 mr-1" />
+                        Has Commentary
+                      </Badge>
+                    )}
+                    {!hasAudioComment && isActiveFastSpeech && (
+                      <Badge variant="outline" className="absolute top-2 right-2 text-xs bg-fuchsia-500/50 border-fuchsia-500">
+                        ⚡ Fast Speech
+                      </Badge>
+                    )}
+                    {!hasAudioComment && !isActiveFastSpeech && isSlowSpeech && (
+                      <Badge variant="outline" className="absolute top-2 right-2 text-xs bg-cyan-500/50 border-cyan-500">
+                        🐌 Slow Speech
+                      </Badge>
+                    )}
+                    {!hasAudioComment && !isActiveFastSpeech && !isSlowSpeech && hasVolumeChange && (
+                      <Badge variant="outline" className="absolute top-2 right-2 text-xs bg-amber-500/50 border-amber-500">
+                        📊 Volume Change
+                      </Badge>
+                    )}
+                    {!hasAudioComment && !isActiveFastSpeech && !isSlowSpeech && !hasVolumeChange && hasVerbalPause && verbalPauseColor && (
+                      <Badge 
+                        variant="outline" 
+                        className="absolute top-2 right-2 text-xs"
+                        style={{
+                          backgroundColor: `${verbalPauseColor}80`,
+                          borderColor: verbalPauseColor
+                        }}
+                      >
+                        🔁 Verbal Pause
+                      </Badge>
+                    )}
+                    {!hasAudioComment && !isActiveFastSpeech && !isSlowSpeech && !hasVolumeChange && !hasVerbalPause && hasInsiderTerm && insiderTermColor && (
+                      <Badge 
+                        variant="outline" 
+                        className="absolute top-2 right-2 text-xs"
+                        style={{
+                          backgroundColor: `${insiderTermColor}80`,
+                          borderColor: insiderTermColor
+                        }}
+                      >
+                        📖 Insider Language
+                      </Badge>
+                    )}
+                    {!hasAudioComment && !isActiveFastSpeech && !isSlowSpeech && !hasVolumeChange && !hasVerbalPause && !hasInsiderTerm && hasConfusing && (
+                      <Badge variant="outline" className="absolute top-2 right-2 text-xs bg-red-500/40 border-red-500">
+                        ⚠️ Insider Language
+                      </Badge>
+                    )}
+                    {!hasAudioComment && !isActiveFastSpeech && !isSlowSpeech && !hasVolumeChange && !hasVerbalPause && !hasInsiderTerm && !hasConfusing && hasPeak && (
+                      <Badge variant="outline" className="absolute top-2 right-2 text-xs bg-orange-500/20 border-orange-500">
+                        🔉 Low Volume
+                      </Badge>
+                    )}
+                    {(() => {
+                      const paragraphComments = getCommentsForRange(firstSentence.startTimeMs, rangeEnd)
+                        .sort((a, b) => a.startTimeMs - b.startTimeMs);
+                      
+                      if (paragraphComments.length === 0) {
+                        // No comments — render paragraph as before
+                        return (
+                          <div className="flex items-start gap-3">
+                            <Badge className="badge-gradient text-xs font-mono shrink-0">
+                              {Math.floor(firstSentence.startTimeMs / 1000 / 60)}:
+                              {String(Math.floor((firstSentence.startTimeMs / 1000) % 60)).padStart(2, "00")}
+                            </Badge>
+                            <p className="flex-1 leading-relaxed font-serif text-foreground/90">
+                              {paragraph.map((s) => {
+                                const sIdx = sentences.indexOf(s);
+                                const hlColor = highlights[sIdx];
+                                const missed = missedByIdx.get(sIdx);
+                                return (
+                                  <span key={sIdx}>
+                                    <span
+                                      className={`${highlightMode ? 'cursor-pointer hover:opacity-80' : ''} ${hlColor ? 'rounded px-0.5' : ''} ${missed ? 'underline decoration-rose-500 decoration-2 underline-offset-4' : ''}`}
+                                      style={hlColor ? { backgroundColor: hlColor + 'cc' } : undefined}
+                                      onClick={highlightMode ? (e) => { e.stopPropagation(); toggleHighlight(sIdx); } : undefined}
+                                    >
+                                      {s.sentenceText}{' '}
+                                    </span>
+                                    {missed && (
+                                      <span
+                                        className="block mt-2 mb-1 p-3 rounded-md border border-rose-300 bg-rose-50 dark:bg-rose-950/30 dark:border-rose-700 font-sans text-sm"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <span className="block text-[10px] uppercase tracking-wider font-bold text-rose-700 dark:text-rose-300 mb-1">
+                                          Try as a question
+                                        </span>
+                                        <span className="block italic text-rose-900 dark:text-rose-100">
+                                          &ldquo;{missed.suggested_question}&rdquo;
+                                        </span>
+                                        {missed.reason && (
+                                          <span className="block mt-1 text-xs text-rose-700/80 dark:text-rose-300/80 not-italic">
+                                            {missed.reason}
+                                          </span>
+                                        )}
+                                      </span>
+                                    )}
+                                  </span>
+                                );
+                              })}
+                            </p>
+                          </div>
+                        );
+                      }
+                      
+                      // Split paragraph sentences around each comment's insertion point
+                      const result: Array<{ type: 'text'; sentences: typeof paragraph } | { type: 'comment'; comment: Comment }> = [];
+                      let remainingSentences = [...paragraph];
+                      
+                      for (const comment of paragraphComments) {
+                        // Find the split point: sentences before the comment's startTimeMs
+                        const beforeIdx = remainingSentences.findIndex(s => s.startTimeMs >= comment.startTimeMs);
+                        let before: typeof paragraph;
+                        if (beforeIdx === -1) {
+                          before = remainingSentences;
+                          remainingSentences = [];
+                        } else if (beforeIdx === 0) {
+                          before = [];
+                        } else {
+                          before = remainingSentences.slice(0, beforeIdx);
+                          remainingSentences = remainingSentences.slice(beforeIdx);
+                        }
+                        if (before.length > 0) {
+                          result.push({ type: 'text', sentences: before });
+                        }
+                        result.push({ type: 'comment', comment });
+                      }
+                      if (remainingSentences.length > 0) {
+                        result.push({ type: 'text', sentences: remainingSentences });
+                      }
+                      
+                      return (
+                        <div className="space-y-2">
+                          {result.map((segment, segIdx) => {
+                            if (segment.type === 'text') {
+                              return (
+                                <div key={`text-${segIdx}`} className="flex items-start gap-3">
+                                  {segIdx === 0 && (
+                                    <Badge className="badge-gradient text-xs font-mono shrink-0">
+                                      {Math.floor(firstSentence.startTimeMs / 1000 / 60)}:
+                                      {String(Math.floor((firstSentence.startTimeMs / 1000) % 60)).padStart(2, "00")}
+                                    </Badge>
+                                  )}
+                                  {segIdx !== 0 && <div className="w-[52px] shrink-0" />}
+                                  <p className="flex-1 leading-relaxed font-serif text-foreground/90">
+                                    {segment.sentences.map((s) => {
+                                      const sIdx = sentences.indexOf(s);
+                                      const hlColor = highlights[sIdx];
+                                      const missed = missedByIdx.get(sIdx);
+                                      return (
+                                        <span key={sIdx}>
+                                          <span
+                                            className={`${highlightMode ? 'cursor-pointer hover:opacity-80' : ''} ${hlColor ? 'rounded px-0.5' : ''} ${missed ? 'underline decoration-rose-500 decoration-2 underline-offset-4' : ''}`}
+                                            style={hlColor ? { backgroundColor: hlColor + 'cc' } : undefined}
+                                            onClick={highlightMode ? (e) => { e.stopPropagation(); toggleHighlight(sIdx); } : undefined}
+                                          >
+                                            {s.sentenceText}{' '}
+                                          </span>
+                                          {missed && (
+                                            <span
+                                              className="block mt-2 mb-1 p-3 rounded-md border border-rose-300 bg-rose-50 dark:bg-rose-950/30 dark:border-rose-700 font-sans text-sm"
+                                              onClick={(e) => e.stopPropagation()}
+                                            >
+                                              <span className="block text-[10px] uppercase tracking-wider font-bold text-rose-700 dark:text-rose-300 mb-1">
+                                                Try as a question
+                                              </span>
+                                              <span className="block italic text-rose-900 dark:text-rose-100">
+                                                &ldquo;{missed.suggested_question}&rdquo;
+                                              </span>
+                                              {missed.reason && (
+                                                <span className="block mt-1 text-xs text-rose-700/80 dark:text-rose-300/80 not-italic">
+                                                  {missed.reason}
+                                                </span>
+                                              )}
+                                            </span>
+                                          )}
+                                        </span>
+                                      );
+                                    })}
+                                  </p>
+                                </div>
+                              );
+                            } else {
+                              const comment = segment.comment;
+                              return (
+                                <div
+                                  key={comment._id}
+                                  className="p-3 rounded-lg shadow-sm transition-all duration-200 hover:shadow-md ml-[52px]"
+                                  style={{
+                                    backgroundColor: rules.find(r => r._id === comment.ruleId)?.color
+                                      ? `${rules.find(r => r._id === comment.ruleId)!.color}15`
+                                      : "hsl(var(--card))",
+                                    borderLeft: rules.find(r => r._id === comment.ruleId)?.color
+                                      ? `4px solid ${rules.find(r => r._id === comment.ruleId)!.color}`
+                                      : "4px solid hsl(var(--primary))",
+                                  }}
+                                >
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="flex-1">
+                                      {comment.ruleId && rules.find(r => r._id === comment.ruleId) && (
+                                        <Badge
+                                          variant="outline"
+                                          className="mb-1"
+                                          style={{ borderColor: rules.find(r => r._id === comment.ruleId)!.color }}
+                                        >
+                                          {rules.find(r => r._id === comment.ruleId)!.name}
+                                        </Badge>
+                                      )}
+                                      <p className="text-sm font-bold">{comment.commentText}</p>
+                                      {comment.audioUrl && comment.commentText === "Audio comment" && (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="mt-1"
+                                          onClick={() => handleTranscribeComment(comment)}
+                                          disabled={transcribingCommentId === comment._id}
+                                        >
+                                          {transcribingCommentId === comment._id ? (
+                                            <>
+                                              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                              Transcribing...
+                                            </>
+                                          ) : (
+                                            <>
+                                              <FileText className="mr-1 h-3 w-3" />
+                                              Transcribe
+                                            </>
+                                          )}
+                                        </Button>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      {comment.audioUrl && (
+                                        <Button
+                                          size="icon"
+                                          variant="ghost"
+                                          className="h-8 w-8"
+                                          onClick={async (e) => {
+                                            e.stopPropagation();
+                                            
+                                            if (playingCommentId === comment._id && commentAudioRef.current) {
+                                              if (commentAudioRef.current.paused) {
+                                                commentAudioRef.current.play().catch(() => {});
+                                              } else {
+                                                commentAudioRef.current.pause();
+                                              }
+                                              return;
+                                            }
+                                            
+                                            stopCommentAudio();
+                                            if (audioRef.current) {
+                                              audioRef.current.pause();
+                                            }
+                                            
+                                            setPlayingCommentId(comment._id);
+                                            
+                                            const url = await resolveCommentAudioUrl(comment);
+                                            
+                                            if (url) {
+                                              const audio = new Audio(url);
+                                              audio.playbackRate = playbackRate;
+                                              audio.volume = commentVolume;
+                                              fixWebmDuration(audio);
+                                              commentAudioRef.current = audio;
+                                              let handled = false;
+                                              const cleanup = () => {
+                                                if (handled) return;
+                                                handled = true;
+                                                setPlayingCommentId(null);
+                                                commentAudioRef.current = null;
+                                              };
+                                              audio.onended = cleanup;
+                                              audio.onerror = () => {
+                                                const mediaError = audio.error;
+                                                if (mediaError && mediaError.code !== MediaError.MEDIA_ERR_ABORTED) {
+                                                  console.error('Comment playback error:', mediaError.code, mediaError.message);
+                                                  cleanup();
+                                                }
+                                              };
+                                              try {
+                                                await audio.play();
+                                              } catch (err: any) {
+                                                if (err.name !== 'AbortError') {
+                                                  console.error('Comment audio.play() failed:', err);
+                                                  cleanup();
+                                                }
+                                              }
+                                            }
+                                          }}
+                                        >
+                                          {playingCommentId === comment._id ? (
+                                            <Pause className="h-4 w-4" />
+                                          ) : (
+                                            <Play className="h-4 w-4" />
+                                          )}
+                                        </Button>
+                                      )}
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleDeleteComment(comment._id);
+                                        }}
+                                      >
+                                        <X className="h-4 w-4" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }
+                          })}
+                        </div>
+                      );
+                    })()}
+                    {/* Insert comment button between paragraphs */}
+                    <div className="flex justify-center -mb-6 mt-2 relative z-10">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-full h-8 px-3 bg-background shadow-sm border-dashed opacity-0 hover:opacity-100 group-hover:opacity-60 transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openCommentDialog(firstSentence.startTimeMs, lastSentence.endTimeMs);
+                        }}
+                      >
+                        <MessageSquare className="h-3 w-3 mr-1" />
+                        <span className="text-xs">Add comment</span>
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+            {/* Add outro comment button at bottom */}
+            <div className="flex justify-center mt-4 pt-4 border-t border-dashed border-border">
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-full h-8 px-4 bg-background shadow-sm border-dashed"
+                onClick={() => {
+                  const lastSentence = sentences[sentences.length - 1];
+                  openCommentDialog(lastSentence?.endTimeMs || 0, lastSentence?.endTimeMs || 0);
+                }}
+              >
+                <MessageSquare className="h-3 w-3 mr-2" />
+                <span className="text-xs">Add outro comment</span>
+              </Button>
+            </div>
+          </div>
+          {userScrolledAway && (
+            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40">
+              <Button
+                size="sm"
+                variant="secondary"
+                className="rounded-full shadow-lg gap-2"
+                onClick={scrollToActiveParagraph}
+              >
+                Return to current paragraph
+              </Button>
+            </div>
+          )}
+        </Card>
+        </div>{/* end flex wrapper */}
       </div>
+
+      {commentDialogOpen && (
+        <div className="fixed bottom-4 right-4 z-50 w-72 rounded-lg border bg-card p-4 shadow-lg space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-semibold">Recording Comment</h4>
+            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => {
+              if (!transcribing) {
+                setCommentDialogOpen(false);
+                setAudioBlob(null);
+                // Clean up pre-acquired stream
+                if (preAcquiredStream) {
+                  preAcquiredStream.getTracks().forEach(t => t.stop());
+                  setPreAcquiredStream(undefined);
+                }
+              }
+            }}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <AudioRecorder
+            autoStart={commentDialogOpen}
+            preAcquiredStream={preAcquiredStream}
+            onRecordingComplete={(blob) => {
+              setAudioBlob(blob);
+              handleAutoSaveAudioComment(blob);
+            }}
+            onClear={() => setAudioBlob(null)}
+            selectedDeviceId={selectedDeviceId}
+            onRecordingStateChange={(isRecording, time, stopFn) => {
+              setFloatingRecording({ isRecording, time, stopFn });
+            }}
+          />
+          {transcribing && (
+            <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Saving and transcribing...
+            </div>
+          )}
+        </div>
+      )}
+
+      <Dialog open={evaluationDialogOpen} onOpenChange={setEvaluationDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Evaluate Sermon</DialogTitle>
+            <DialogDescription>
+              Select evaluation rules to apply to this sermon
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {rules.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No evaluation rules found. Create rules first.
+              </p>
+            ) : (
+              rules.map((rule) => (
+                <div key={rule._id} className="flex items-center space-x-2">
+                  <Checkbox
+                    id={rule._id}
+                    checked={selectedRuleIds.includes(rule._id)}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        setSelectedRuleIds([...selectedRuleIds, rule._id]);
+                      } else {
+                        setSelectedRuleIds(selectedRuleIds.filter((id) => id !== rule._id));
+                      }
+                    }}
+                  />
+                  <label
+                    htmlFor={rule._id}
+                    className="flex-1 text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-3 h-3 rounded-full"
+                        style={{ backgroundColor: rule.color }}
+                      />
+                      {rule.name}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">{rule.description}</p>
+                  </label>
+                </div>
+              ))
+            )}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setEvaluationDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleEvaluate} disabled={evaluating || selectedRuleIds.length === 0}>
+              {evaluating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Start Evaluation
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* FloatingRecordingIndicator removed - comment panel already has stop button */}
+
+      {/* Floating Add Comment button when audio is paused */}
+      {!playing && !playingCommentId && !floatingRecording.isRecording && audioUrl && currentTime > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
+          <Button
+            size="lg"
+            className="shadow-lg gap-2"
+            onClick={() => {
+              // Find the sentence/paragraph at current time for context
+              const currentSentence = sentences.find(
+                s => currentTime >= s.startTimeMs && currentTime <= s.endTimeMs
+              );
+              const timeMs = currentSentence ? currentSentence.startTimeMs : Math.round(currentTime);
+              const endMs = currentSentence ? currentSentence.endTimeMs : Math.round(currentTime) + 1000;
+              openCommentDialog(timeMs, endMs);
+            }}
+          >
+            <MessageSquare className="h-5 w-5" />
+            Add comment at {Math.floor(currentTime / 1000 / 60)}:{String(Math.floor((currentTime / 1000) % 60)).padStart(2, "00")}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
