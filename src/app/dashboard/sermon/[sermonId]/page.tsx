@@ -59,6 +59,7 @@ import {
 } from "@/components/ui/collapsible";
 import { AudioRecorder } from "@/components/AudioRecorder";
 import { FloatingRecordingIndicator } from "@/components/FloatingRecordingIndicator";
+import { AudioEditor } from "@/components/AudioEditor";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { combineAudioFiles } from "@/utils/audioCombiner";
 import { generateClientReportPdf, type ClientReportData } from "@/utils/clientReportPdf";
@@ -2322,15 +2323,1108 @@ export default function SermonViewer() {
                   <Input
                     value={titleInput}
                     onChange={(e) => setTitleInput(e.target.value)}
+                    className="h-10 text-2xl font-bold w-80"
+                    placeholder="Sermon title"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSaveTitle();
+                      if (e.key === "Escape") setEditingTitle(false);
+                    }}
                   />
+                  <Button size="icon" variant="ghost" onClick={handleSaveTitle}>
+                    <Check className="h-5 w-5" />
+                  </Button>
+                  <Button size="icon" variant="ghost" onClick={() => setEditingTitle(false)}>
+                    <X className="h-5 w-5" />
+                  </Button>
                 </div>
               ) : (
-                <div />
+                <div className="flex items-center gap-2 group">
+                  <h1 className="text-3xl font-bold text-foreground">{sermon.title || "Untitled Sermon"}</h1>
+                  <Button 
+                    size="icon" 
+                    variant="ghost" 
+                    className="opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => {
+                      setTitleInput(sermon.title || "");
+                      setEditingTitle(true);
+                    }}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                </div>
               )}
+              <Badge variant="secondary" className="mt-2">
+                {sermon.transcriptionStatus}
+              </Badge>
             </div>
           </div>
-          {/* Part 2, 3, 4 will fill in the rest */}
+          <div className="flex gap-2 items-center">
+            <ThemeSwitcher />
+            <Button
+              variant="outline"
+              onClick={handleExportAudio}
+              disabled={combiningAudio || comments.filter(c => c.audioUrl).length === 0}
+            >
+              {combiningAudio ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              Export Combined Audio
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleExportClientPdf}
+              disabled={exporting || sentences.length === 0}
+            >
+              {exporting ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <FileBarChart className="mr-2 h-4 w-4" />
+              )}
+              Client PDF Report
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setEvaluationDialogOpen(true)}
+              disabled={rules.length === 0}
+            >
+              <Sparkles className="mr-2 h-4 w-4" />
+              Evaluate
+            </Button>
+          </div>
         </div>
+
+        {previewingParagraph !== null && (
+          <Card className="mb-6 p-4 border-primary bg-primary/5">
+            <div className="flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <p className="text-sm font-medium">Playing paragraph with commentary...</p>
+            </div>
+          </Card>
+        )}
+
+        {/* Audio Editor */}
+        {showAudioEditor && sermon && audioUrl && (
+          <AudioEditor
+            audioUrl={audioUrl}
+            fileUrl={audioUrl}
+            sermonId={sermonId}
+            durationMs={(sermon.durationSeconds || 0) * 1000}
+            onClose={() => setShowAudioEditor(false)}
+            onSave={() => {
+              setShowAudioEditor(false);
+              // Clear current audio URL to force full reload
+              setAudioUrl("");
+              toast.info("This feature requires server configuration");
+            }}
+          />
+        )}
+
+        <Card className={`mb-6 shadow-md border-border/50 transition-all duration-300 ${playerCollapsed ? 'py-2 px-4' : 'p-6'}`}>
+          <button
+            className="w-full flex items-center justify-between cursor-pointer"
+            onClick={() => setPlayerCollapsed(!playerCollapsed)}
+          >
+            <div className="flex items-center gap-3">
+              <h2 className={`font-semibold text-gradient-primary transition-all duration-300 ${playerCollapsed ? 'text-sm' : 'text-base'}`}>Audio Player</h2>
+              {playerCollapsed && playing && (
+                <Badge variant="secondary" className="animate-pulse text-xs">
+                  Playing
+                </Badge>
+              )}
+              {playerCollapsed && (
+              <span className="text-xs text-muted-foreground font-mono">
+                  {Math.floor(currentTime / 1000 / 60)}:{String(Math.floor((currentTime / 1000) % 60)).padStart(2, "0")} / {sermon.durationSeconds ? `${Math.floor(sermon.durationSeconds / 60)}:${String(Math.floor(sermon.durationSeconds % 60)).padStart(2, "0")}` : "0:00"}
+                </span>
+              )}
+            </div>
+            <ChevronDown className={`h-5 w-5 text-muted-foreground transition-transform duration-300 ${playerCollapsed ? '-rotate-90' : ''}`} />
+          </button>
+          <div className={`overflow-hidden transition-all duration-300 ${playerCollapsed ? 'max-h-0 opacity-0 mt-0' : 'mt-4'}`}>
+          <div className="space-y-4">
+            <div className="flex items-center gap-4 flex-wrap">
+              <Button 
+                size="icon" 
+                onClick={togglePlayPause} 
+                disabled={previewingParagraph !== null || showAudioEditor}
+                className={`${playing ? 'pause-button' : 'play-button'} h-12 w-12 text-primary-foreground`}
+              >
+                {playing ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6 ml-0.5" />}
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowAudioEditor(!showAudioEditor)}
+                disabled={previewingParagraph !== null}
+              >
+                <Scissors className="h-4 w-4 mr-2" />
+                {showAudioEditor ? "Close Editor" : "Edit Audio"}
+              </Button>
+
+
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={async () => {
+                  if (audioRef.current) {
+                    stopCommentAudio();
+                    setPlayedCommentIds(new Set());
+                    audioRef.current.currentTime = 0;
+                    
+                    // Check if there's an intro comment (start=0, end=0)
+                    const introComment = comments.find(
+                      c => c.audioUrl && c.startTimeMs === 0 && c.endTimeMs === 0
+                    );
+                    if (introComment) {
+                      // Play the intro comment first
+                      audioRef.current.pause();
+                      setPlayingCommentId(introComment._id);
+                      setPlayedCommentIds(new Set([introComment._id]));
+                      
+                      const url = await resolveCommentAudioUrl(introComment);
+                      
+                      if (url) {
+                        const audio = new Audio(url);
+                        audio.playbackRate = playbackRate;
+                        commentAudioRef.current = audio;
+                        let handled = false;
+                        const cleanup = () => {
+                          if (handled) return;
+                          handled = true;
+                          setPlayingCommentId(null);
+                          commentAudioRef.current = null;
+                          if (audioRef.current) {
+                            void playSermonAudio();
+                          }
+                        };
+                        audio.onended = cleanup;
+                        audio.onerror = () => {
+                          cleanup();
+                        };
+                        try {
+                          await audio.play();
+                        } catch (err: unknown) {
+                          cleanup();
+                        }
+                      } else {
+                        setPlayingCommentId(null);
+                        await playSermonAudio();
+                      }
+                    } else {
+                      await playSermonAudio();
+                    }
+                  }
+                }}
+                disabled={previewingParagraph !== null}
+              >
+                <RotateCcw className="h-4 w-4 mr-2" />
+                Play from start
+              </Button>
+              
+              <div className="flex items-center gap-1 border-l pl-4">
+                <span className="text-sm text-muted-foreground">Zoom:</span>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="h-8 w-8"
+                  onClick={() => {
+                    const levels = [0.75, 1, 1.25, 1.5, 2, 3, 4, 6, 8];
+                    const idx = levels.indexOf(zoomLevel);
+                    if (idx > 0) { setZoomLevel(levels[idx - 1]); setViewStart(0); }
+                  }}
+                  disabled={zoomLevel <= 0.75}
+                >
+                  <ZoomOut className="h-4 w-4" />
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="min-w-[5rem]">
+                      {zoomLevel}x
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuItem onClick={() => { setZoomLevel(0.75); setViewStart(0); }}>
+                      0.75x
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => { setZoomLevel(1); setViewStart(0); }}>
+                      1x
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => { setZoomLevel(1.25); setViewStart(0); }}>
+                      1.25x
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => { setZoomLevel(1.5); setViewStart(0); }}>
+                      1.5x
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => { setZoomLevel(2); setViewStart(0); }}>
+                      2x
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => { setZoomLevel(3); setViewStart(0); }}>
+                      3x
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => { setZoomLevel(4); setViewStart(0); }}>
+                      4x
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => { setZoomLevel(6); setViewStart(0); }}>
+                      6x
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => { setZoomLevel(8); setViewStart(0); }}>
+                      8x
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="h-8 w-8"
+                  onClick={() => {
+                    const levels = [0.75, 1, 1.25, 1.5, 2, 3, 4, 6, 8];
+                    const idx = levels.indexOf(zoomLevel);
+                    if (idx < levels.length - 1) { setZoomLevel(levels[idx + 1]); setViewStart(0); }
+                  }}
+                  disabled={zoomLevel >= 8}
+                >
+                  <ZoomIn className="h-4 w-4" />
+                </Button>
+                {zoomLevel !== 1 && (
+                  <Button 
+                    size="icon" 
+                    variant="outline"
+                    className="h-8 w-8"
+                    onClick={() => {
+                      setZoomLevel(1);
+                      setViewStart(0);
+                    }}
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+              
+              <div className="flex items-center gap-2 border-l pl-4">
+                <span className="text-sm text-muted-foreground">Speed:</span>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="min-w-[4rem]">
+                      {playbackRate}x
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuItem onClick={() => setPlaybackRate(0.5)}>
+                      0.5x
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setPlaybackRate(0.75)}>
+                      0.75x
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setPlaybackRate(1)}>
+                      1x
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setPlaybackRate(1.25)}>
+                      1.25x
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setPlaybackRate(1.5)}>
+                      1.5x
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setPlaybackRate(2)}>
+                      2x
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+
+              <div className="flex items-center gap-2 border-l pl-4">
+                <Volume2 className="h-4 w-4 text-muted-foreground" />
+                <div className="flex flex-col gap-1 min-w-[120px]">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground w-16">Sermon:</span>
+                    <Slider
+                      value={[sermonVolume * 100]}
+                      onValueChange={([v]) => setSermonVolume(v / 100)}
+                      max={200}
+                      step={5}
+                      className="w-24"
+                    />
+                    <span className={`text-xs w-10 ${sermonVolume > 1 ? 'text-orange-500 font-medium' : 'text-muted-foreground'}`}>{Math.round(sermonVolume * 100)}%</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground w-16">Comments:</span>
+                    <Slider
+                      value={[commentVolume * 100]}
+                      onValueChange={([v]) => setCommentVolume(v / 100)}
+                      max={200}
+                      step={5}
+                      className="w-24"
+                    />
+                    <span className={`text-xs w-10 ${commentVolume > 1 ? 'text-orange-500 font-medium' : 'text-muted-foreground'}`}>{Math.round(commentVolume * 100)}%</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1 border-l pl-4">
+                {timeSinceLastCommentInAudio !== null && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Since last comment:</span>
+                    <span className="text-sm font-medium font-mono">
+                      {Math.floor(timeSinceLastCommentInAudio / 60)}:{String(timeSinceLastCommentInAudio % 60).padStart(2, '0')}
+                    </span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Comments:</span>
+                  <span className="text-sm font-medium">{comments.filter(c => !c.ruleId).length}</span>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-2 border-l pl-4">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="max-w-[200px]">
+                      <Mic className="mr-2 h-4 w-4 shrink-0" />
+                      <span className="truncate">{getSelectedDeviceLabel()}</span>
+                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="w-[300px] bg-popover z-50" align="start">
+                    {audioDevices.map((device) => (
+                      <DropdownMenuItem
+                        key={device.deviceId}
+                        onClick={() => setSelectedDeviceId(device.deviceId)}
+                        className={selectedDeviceId === device.deviceId ? "bg-accent" : ""}
+                      >
+                        <Mic className="mr-2 h-4 w-4" />
+                        <span className="truncate">{device.label}</span>
+                      </DropdownMenuItem>
+                    ))}
+                    {audioDevices.length === 0 && (
+                      <DropdownMenuItem disabled>
+                        No microphones found
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+
+
+              {comments.filter(c => c.audioUrl).length > 0 && (
+                <div className="flex items-center gap-2 border-l pl-4">
+                  <Switch
+                    id="preview-comments"
+                    checked={previewWithComments}
+                    onCheckedChange={setPreviewWithComments}
+                  />
+                  <label 
+                    htmlFor="preview-comments" 
+                    className="text-sm text-muted-foreground cursor-pointer"
+                  >
+                    Preview with comments
+                  </label>
+                  {playingCommentId && (
+                    <Badge variant="secondary" className="animate-pulse">
+                      <Mic className="h-3 w-3 mr-1" />
+                      Playing comment
+                    </Badge>
+                  )}
+                </div>
+              )}
+            </div>
+            
+            <div className="flex-1 space-y-2">
+              <audio
+                ref={audioRef}
+                src={audioUrl}
+                crossOrigin="anonymous"
+                onTimeUpdate={handleTimeUpdate}
+                onSeeked={handleSeeked}
+                onPlay={() => {
+                  setPlaying(true);
+                }}
+                onPause={handleAudioPause}
+              />
+                
+                {/* Timeline with sermon and comment segments */}
+                <div 
+                  className={`timeline-track relative h-48 overflow-x-auto custom-scrollbar bg-background/80 ${isDraggingTimeline ? 'cursor-grabbing' : 'cursor-grab'}`}
+                  onWheel={(e) => {
+                    if (e.ctrlKey || e.metaKey) {
+                      e.preventDefault();
+                      const levels = [0.75, 1, 1.25, 1.5, 2, 3, 4, 6, 8];
+                      const idx = levels.indexOf(zoomLevel);
+                      if (e.deltaY < 0 && idx < levels.length - 1) {
+                        setZoomLevel(levels[idx + 1]);
+                      } else if (e.deltaY > 0 && idx > 0) {
+                        setZoomLevel(levels[idx - 1]);
+                      }
+                    }
+                  }}
+                  onMouseDown={(e) => {
+                    if (e.button !== 0) return;
+                    const container = e.currentTarget;
+                    dragStartRef.current = { x: e.clientX, scrollLeft: container.scrollLeft };
+                    setIsDraggingTimeline(false);
+                  }}
+                  onMouseMove={(e) => {
+                    const container = e.currentTarget;
+                    
+                    // Handle dragging
+                    if (dragStartRef.current && e.buttons === 1) {
+                      const dx = e.clientX - dragStartRef.current.x;
+                      if (Math.abs(dx) > 3) {
+                        setIsDraggingTimeline(true);
+                        container.scrollLeft = dragStartRef.current.scrollLeft + dx;
+                      }
+                    }
+                    
+                    // Hover tooltip
+                    if (!sermon.durationSeconds) return;
+                    const rect = container.getBoundingClientRect();
+                    const hoverX = e.clientX - rect.left + container.scrollLeft;
+                    const totalWidth = rect.width * zoomLevel;
+                    const percentage = hoverX / totalWidth;
+                    const timeMs = percentage * sermon.durationSeconds * 1000;
+                    const positionPercent = (hoverX / totalWidth) * 100;
+                    setHoverTime(timeMs);
+                    setHoverPosition(positionPercent);
+                  }}
+                  onMouseUp={(e) => {
+                    // Only seek if it was a click (not a drag)
+                    if (!isDraggingTimeline && sermon.durationSeconds) {
+                      const container = e.currentTarget;
+                      const rect = container.getBoundingClientRect();
+                      const clickX = e.clientX - rect.left + container.scrollLeft;
+                      const totalWidth = rect.width * zoomLevel;
+                      const percentage = clickX / totalWidth;
+                      const newTime = percentage * sermon.durationSeconds * 1000;
+                      seekTo(newTime);
+                    }
+                    dragStartRef.current = null;
+                    setIsDraggingTimeline(false);
+                  }}
+                  onMouseLeave={() => {
+                    dragStartRef.current = null;
+                    setIsDraggingTimeline(false);
+                    setHoverTime(null);
+                    setHoverPosition(null);
+                  }}
+                >
+                  <div style={{ width: `${zoomLevel * 100}%`, position: 'relative', height: '100%' }}>
+                    {/* Hover timestamp tooltip */}
+                    {hoverTime !== null && hoverPosition !== null && (
+                      <div 
+                        className="absolute z-20 bottom-full mb-2 px-2 py-1 bg-foreground text-background text-xs rounded shadow-lg pointer-events-none whitespace-nowrap"
+                        style={{
+                          left: `${hoverPosition}%`,
+                          transform: 'translateX(-50%)',
+                        }}
+                      >
+                        {Math.floor(hoverTime / 1000 / 60)}:{String(Math.floor((hoverTime / 1000) % 60)).padStart(2, "0")}
+                      </div>
+                    )}
+                    {/* Hover vertical line indicator */}
+                    {hoverTime !== null && hoverPosition !== null && (
+                      <div 
+                        className="absolute z-10 top-0 bottom-0 w-px bg-foreground/50 pointer-events-none"
+                        style={{
+                          left: `${hoverPosition}%`,
+                        }}
+                      />
+                    )}
+                    {/* Waveform visualization - canvas */}
+                    {waveformData.length > 0 && (
+                      <canvas
+                        ref={waveformCanvasRef}
+                        className="absolute inset-0 w-full h-full"
+                        style={{ pointerEvents: 'none' }}
+                      />
+                    )}
+
+                  {/* Sermon segments (green) and comment segments (red) */}
+                  {sermon.durationSeconds && (() => {
+                    const totalDuration = sermon.durationSeconds * 1000;
+                    const sortedComments = [...comments]
+                      .filter(c => c.audioUrl) // Include all comments with audio (including intro)
+                      .sort((a, b) => a.startTimeMs - b.startTimeMs);
+                    
+                    const segments: Array<{ start: number; end: number; type: 'sermon' | 'comment' | 'fast-speech'; comment?: Comment }> = [];
+                    let currentPos = 0;
+                    
+                    // Get fast speech paragraphs
+                    const paragraphs = groupIntoParagraphs(sentences);
+                    const fastSpeechRanges = paragraphs
+                      .filter(p => hasFastSpeechRate(p, fastSpeechThreshold))
+                      .map(p => ({
+                        start: p[0].startTimeMs,
+                        end: p[p.length - 1].endTimeMs
+                      }));
+                    
+                    sortedComments.forEach(comment => {
+                      // Add sermon segment before comment
+                      if (comment.startTimeMs > currentPos) {
+                        segments.push({
+                          start: currentPos,
+                          end: comment.startTimeMs,
+                          type: 'sermon'
+                        });
+                      }
+                      // Add comment segment
+                      segments.push({
+                        start: comment.startTimeMs,
+                        end: comment.startTimeMs, // Comments are insertions, not replacements
+                        type: 'comment',
+                        comment
+                      });
+                      currentPos = comment.startTimeMs;
+                    });
+                    
+                    // Add final sermon segment
+                    if (currentPos < totalDuration) {
+                      segments.push({
+                        start: currentPos,
+                        end: totalDuration,
+                        type: 'sermon'
+                      });
+                    }
+                    
+                    return (
+                      <>
+                        {/* Only show commentary insertions, not sermon segments */}
+                        {segments.filter(s => s.type === 'comment').map((segment, idx) => {
+                          const left = (segment.start / totalDuration) * 100;
+                          
+                          return (
+                            <div
+                              key={idx}
+                              className="comment-marker absolute h-full"
+                              style={{
+                                left: `${left}%`,
+                                width: '4px',
+                              }}
+                              title={`Commentary at ${Math.floor(segment.start / 1000 / 60)}:${String(Math.floor((segment.start / 1000) % 60)).padStart(2, "0")}`}
+                            >
+                              <div className="w-full h-full bg-gradient-warm rounded-full shadow-glow-accent" />
+                            </div>
+                          );
+                        })}
+                        
+                        {/* Fast speech overlays */}
+                        {showFastSpeech && fastSpeechRanges.map((range, idx) => {
+                          const left = (range.start / totalDuration) * 100;
+                          const width = ((range.end - range.start) / totalDuration) * 100;
+                          
+                          return (
+                            <div
+                              key={`fast-${idx}`}
+                              className="absolute h-full bg-fuchsia-500/50 border-t-2 border-b-2 border-fuchsia-600"
+                              style={{
+                                left: `${left}%`,
+                                width: `${width}%`,
+                              }}
+                              title={`Fast speech at ${Math.floor(range.start / 1000 / 60)}:${String(Math.floor((range.start / 1000) % 60)).padStart(2, "0")}`}
+                            />
+                          );
+                        })}
+                        
+                        {/* Filler word overlays */}
+                        {getTopFillerWords().map((filler) => {
+                          if (!visibleFillerWords.has(filler.word)) return null;
+                          
+                          return getFillerWordTimestamps(filler.word).map((timestamp, idx) => {
+                            const left = (timestamp.start / totalDuration) * 100;
+                            const width = ((timestamp.end - timestamp.start) / totalDuration) * 100;
+                            
+                            return (
+                              <div
+                                key={`filler-${filler.word}-${idx}`}
+                                className="absolute h-full border-t-2 border-b-2"
+                                style={{
+                                  left: `${left}%`,
+                                  width: `${width}%`,
+                                  backgroundColor: `${filler.color}50`,
+                                  borderColor: filler.color,
+                                }}
+                                title={`"${filler.word}" at ${Math.floor(timestamp.start / 1000 / 60)}:${String(Math.floor((timestamp.start / 1000) % 60)).padStart(2, "0")}`}
+                              />
+                            );
+                          });
+                        })}
+                        
+                        {/* Slow speech overlays */}
+                        {showSlowSpeech && getSlowSpeechParagraphs(slowSpeechThreshold).map((paragraph, idx) => {
+                          const start = paragraph[0].startTimeMs;
+                          const end = paragraph[paragraph.length - 1].endTimeMs;
+                          const left = (start / totalDuration) * 100;
+                          const width = ((end - start) / totalDuration) * 100;
+                          
+                          return (
+                            <div
+                              key={`slow-${idx}`}
+                              className="absolute h-full bg-cyan-500/50 border-t-2 border-b-2 border-cyan-600"
+                              style={{
+                                left: `${left}%`,
+                                width: `${width}%`,
+                              }}
+                              title={`Slow speech at ${Math.floor(start / 1000 / 60)}:${String(Math.floor((start / 1000) % 60)).padStart(2, "0")}`}
+                            />
+                          );
+                        })}
+                        
+                        {/* Volume change overlays */}
+                        {showVolumeChanges && getVolumeChangeParagraphs().map((paragraph, idx) => {
+                          const start = paragraph[0].startTimeMs;
+                          const end = paragraph[paragraph.length - 1].endTimeMs;
+                          const left = (start / totalDuration) * 100;
+                          const width = ((end - start) / totalDuration) * 100;
+                          
+                          return (
+                            <div
+                              key={`volume-${idx}`}
+                              className="absolute h-full bg-amber-500/50 border-t-2 border-b-2 border-amber-600"
+                              style={{
+                                left: `${left}%`,
+                                width: `${width}%`,
+                              }}
+                              title={`Volume change at ${Math.floor(start / 1000 / 60)}:${String(Math.floor((start / 1000) % 60)).padStart(2, "0")}`}
+                            />
+                          );
+                        })}
+                        
+                        {/* Silent pause overlays */}
+                        {showSilentPauses && getSilentPauseTimestamps().map((pause, idx) => {
+                          const left = (pause.start / totalDuration) * 100;
+                          const width = ((pause.end - pause.start) / totalDuration) * 100;
+                          
+                          return (
+                            <div
+                              key={`silent-${idx}`}
+                              className="absolute h-full bg-blue-500/50 border-t-2 border-b-2 border-blue-600"
+                              style={{
+                                left: `${left}%`,
+                                width: `${Math.max(width, 0.3)}%`,
+                              }}
+                              title={`${(pause.durationMs / 1000).toFixed(1)}s pause at ${Math.floor(pause.start / 1000 / 60)}:${String(Math.floor((pause.start / 1000) % 60)).padStart(2, "0")}`}
+                            />
+                          );
+                        })}
+                        
+                        {/* Insider language overlays */}
+                        {getTopInsiderTerms().map((term) => {
+                          if (!showInsiderLanguage) return null;
+                          // When the master toggle is on, show every top term by default.
+                          // The per-term checkboxes only narrow the set when at least one is selected.
+                          if (visibleInsiderTerms.size > 0 && !visibleInsiderTerms.has(term.word)) return null;
+                          
+                          return getInsiderTermTimestamps(term.word).map((timestamp, idx) => {
+                            const left = (timestamp.start / totalDuration) * 100;
+                            const width = ((timestamp.end - timestamp.start) / totalDuration) * 100;
+                            
+                            return (
+                              <div
+                                key={`insider-${term.word}-${idx}`}
+                                className="absolute h-full border-t-2 border-b-2"
+                                style={{
+                                  left: `${left}%`,
+                                  width: `${width}%`,
+                                  backgroundColor: `${term.color}50`,
+                                  borderColor: term.color,
+                                }}
+                                title={`"${term.word}" at ${Math.floor(timestamp.start / 1000 / 60)}:${String(Math.floor((timestamp.start / 1000) % 60)).padStart(2, "0")}`}
+                              />
+                            );
+                          });
+                        })}
+                        
+                        {/* Scripture reference overlays - sentence-level precision */}
+                        {showScriptureRefs && scriptureRefs && sentences.map((sentence, idx) => {
+                          // Check if this specific sentence contains scripture text
+                          const hasScripture = scriptureRefs.some(ref => {
+                            const contextWords = ref.context.split(' ').slice(0, 10).join(' ');
+                            return sentence.sentenceText.includes(contextWords) || sentence.sentenceText.includes(ref.reference);
+                          });
+                          if (!hasScripture) return null;
+                          
+                          const left = (sentence.startTimeMs / totalDuration) * 100;
+                          const width = ((sentence.endTimeMs - sentence.startTimeMs) / totalDuration) * 100;
+                          
+                          return (
+                            <div
+                              key={`scripture-${idx}`}
+                              className="absolute h-full bg-emerald-500/50 border-t-2 border-b-2 border-emerald-600"
+                              style={{
+                                left: `${left}%`,
+                                width: `${width}%`,
+                              }}
+                              title={`Scripture at ${Math.floor(sentence.startTimeMs / 1000 / 60)}:${String(Math.floor((sentence.startTimeMs / 1000) % 60)).padStart(2, "0")}`}
+                            />
+                          );
+                        })}
+
+                        {/* Confusing phrases overlays */}
+                        {showConfusingPhrases && confusingPhrases && confusingPhrases.map((phrase, idx) => {
+                          const left = (phrase.startTimeMs / totalDuration) * 100;
+                          const width = ((phrase.startTimeMs - phrase.startTimeMs) / totalDuration) * 100;
+                          const severityColor = phrase.severity === 'severe' ? '#ef4444' : phrase.severity === 'moderate' ? '#f97316' : '#eab308';
+                          
+                          return (
+                            <div
+                              key={`confusing-${idx}`}
+                              className="absolute h-full border-t-2 border-b-2"
+                              style={{
+                                left: `${left}%`,
+                                width: `${width}%`,
+                                backgroundColor: `${severityColor}40`,
+                                borderColor: severityColor,
+                              }}
+                              title={`⚠️ "${phrase.phrase}" - ${phrase.suggestion}`}
+                            />
+                          );
+                        })}
+
+                        {/* Question overlays */}
+                        {showQuestions && sentences.map((sentence, idx) => {
+                          if (!sentence.sentenceText.trim().endsWith('?')) return null;
+                          if (isSentenceInScripture(sentence.sentenceText, idx)) return null;
+                          if (congregationQuestionIndices && !congregationQuestionIndices.has(idx)) return null;
+                          const left = (sentence.startTimeMs / totalDuration) * 100;
+                          const width = ((sentence.endTimeMs - sentence.startTimeMs) / totalDuration) * 100;
+                          return (
+                            <div
+                              key={`question-${idx}`}
+                              className="absolute h-full border-t-2 border-b-2 border-amber-500 bg-amber-500/30"
+                              style={{ left: `${left}%`, width: `${Math.max(width, 0.3)}%` }}
+                              title={`❓ ${sentence.sentenceText}`}
+                            />
+                          );
+                        })}
+
+                        {/* Missed-question opportunity overlays */}
+                        {showMissedQuestions && missedQuestionsData?.opportunities.map((opp) => {
+                          const sentence = sentences[opp.index];
+                          if (!sentence) return null;
+                          const left = (sentence.startTimeMs / totalDuration) * 100;
+                          const width = ((sentence.endTimeMs - sentence.startTimeMs) / totalDuration) * 100;
+                          return (
+                            <div
+                              key={`missed-q-${opp.index}`}
+                              className="absolute h-full border-t-2 border-b-2 border-rose-500 bg-rose-500/30"
+                              style={{ left: `${left}%`, width: `${Math.max(width, 0.3)}%` }}
+                              title={`💡 Try as a question: ${opp.suggested_question}`}
+                            />
+                          );
+                        })}
+                      </>
+                    );
+                  })()}
+                  
+                  {/* Playhead */}
+                  <div
+                    className="absolute top-0 bottom-0 w-1 bg-gradient-primary z-10 rounded-full shadow-glow-primary progress-glow"
+                    style={{
+                      left: sermon.durationSeconds
+                        ? `${(currentTime / (sermon.durationSeconds * 1000)) * 100}%`
+                        : "0%",
+                    }}
+                  >
+                    <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-4 h-4 bg-gradient-primary rounded-full shadow-lg border-2 border-background" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Time display */}
+              <div className="flex justify-between text-sm">
+                <span className="font-mono text-foreground font-medium">
+                  {Math.floor(currentTime / 1000 / 60)}:
+                  {String(Math.floor((currentTime / 1000) % 60)).padStart(2, "0")}
+                </span>
+                <span className="text-muted-foreground">
+                  {sermon.durationSeconds 
+                    ? `-${Math.floor((sermon.durationSeconds * 1000 - currentTime) / 1000 / 60)}:${String(Math.floor(((sermon.durationSeconds * 1000 - currentTime) / 1000) % 60)).padStart(2, "0")}`
+                    : "-0:00"
+                  }
+                </span>
+                <span className="font-mono text-muted-foreground">
+                  {sermon.durationSeconds 
+                    ? `${Math.floor(sermon.durationSeconds / 60)}:${String(Math.floor(sermon.durationSeconds % 60)).padStart(2, "0")}`
+                    : "0:00"
+                  }
+                </span>
+              </div>
+            </div>
+
+            {/* Legend */}
+            <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
+              <div className="flex items-center gap-2">
+                <div className="w-0.5 h-4 bg-red-500" />
+                <span>Commentary Insertion</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-2 bg-fuchsia-500/50 border-t border-b border-fuchsia-600 rounded" />
+                <span>Fast Speech</span>
+              </div>
+              {getTopFillerWords().map((filler) => (
+                <div key={filler.word} className="flex items-center gap-2">
+                  <div 
+                    className="w-4 h-2 border-t border-b rounded" 
+                    style={{
+                      backgroundColor: `${filler.color}50`,
+                      borderColor: filler.color
+                    }}
+                  />
+                  <span className="capitalize">{filler.word}</span>
+                </div>
+              ))}
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-2 bg-cyan-500/50 border-t border-b border-cyan-600 rounded" />
+                <span>Slow Speech</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-2 bg-amber-500/50 border-t border-b border-amber-600 rounded" />
+                <span>Volume Dynamics</span>
+              </div>
+              {getTopInsiderTerms().map((term) => (
+                <div key={term.word} className="flex items-center gap-2">
+                  <div 
+                    className="w-4 h-2 border-t border-b rounded" 
+                    style={{
+                      backgroundColor: `${term.color}50`,
+                      borderColor: term.color
+                    }}
+                  />
+                  <span className="capitalize">{term.word}</span>
+                </div>
+              ))}
+              {showScriptureRefs && (
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-2 bg-emerald-500/50 border-t border-b border-emerald-600 rounded" />
+                  <span>Scripture References</span>
+                </div>
+              )}
+              {showConfusingPhrases && (
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-2 bg-red-500/40 border-t border-b border-red-500 rounded" />
+                  <span>Insider Language</span>
+                </div>
+              )}
+              {showQuestions && (
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-2 bg-amber-500/50 border-t border-b border-amber-600 rounded" />
+                  <span>Questions</span>
+                </div>
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs ml-auto"
+                onClick={() => {
+                  if (anyAIOverlayActive) {
+                    clearAllAIOverlays();
+                  } else {
+                    setHideAIEvalComments(false);
+                  }
+                }}
+              >
+                {anyAIOverlayActive ? "Hide AI Highlights" : "Show AI Comments"}
+              </Button>
+            </div>
+          </div>
+
+          {combiningAudio && (
+            <div className="mt-4 space-y-2">
+              <Progress value={combineProgress} />
+              <p className="text-sm text-muted-foreground text-center">{combineStatus}</p>
+            </div>
+          )}
+          </div>
+        </Card>
+
+        {/* WPM Timeline Chart */}
+        {getWpmTimelineData().length > 0 && (
+            <div className="mb-6 rounded-lg border bg-card text-card-foreground shadow-sm p-4" data-export-chart="wpm">
+              <h3 className="text-base font-semibold mb-3">Speaking Pace Over Time</h3>
+            <div className="h-48 w-full cursor-pointer">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart 
+                  data={getWpmTimelineData()} 
+                  margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
+                  onClick={(data) => {
+                    const d = data as unknown as { activePayload?: Array<{ payload?: { time?: number } }> };
+                    if (d?.activePayload?.[0]?.payload?.time !== undefined && audioRef.current) {
+                      const timeMs = d.activePayload[0].payload!.time!;
+                      audioRef.current.currentTime = timeMs / 1000;
+                      void playSermonAudio();
+                      setWpmChartClockActive(true);
+                    }
+                  }}
+                >
+                  <XAxis 
+                    dataKey="time" 
+                    type="number"
+                    domain={['dataMin', 'dataMax']}
+                    tick={{ fontSize: 10 }} 
+                    tickFormatter={(ms) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, '0')}`}
+                    interval="preserveStartEnd"
+                  />
+                  <YAxis 
+                    tick={{ fontSize: 10 }} 
+                    domain={['dataMin - 10', 'dataMax + 10']}
+                    width={40}
+                  />
+                  <Tooltip 
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null;
+                      const wpm = payload[0].value as number;
+                      const avg = getAverageSpeechRate();
+                      const pctDev = avg > 0 ? ((wpm - avg) / avg) * 100 : 0;
+                      const ms = payload[0].payload.time as number;
+                      const sign = pctDev >= 0 ? '+' : '';
+                      return (
+                        <div className="bg-popover border rounded-lg px-3 py-2 shadow-lg text-xs">
+                          <p className="text-muted-foreground">{`${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, '0')}`}</p>
+                          <p className="font-semibold">{wpm} WPM</p>
+                          <p className={pctDev >= 0 ? 'text-rose-600' : 'text-blue-600'}>{sign}{pctDev.toFixed(1)}% from avg</p>
+                        </div>
+                      );
+                    }}
+                  />
+                  <ReferenceLine 
+                    y={Math.round(getAverageSpeechRate())} 
+                    stroke="hsl(var(--muted-foreground))" 
+                    strokeDasharray="5 5"
+                    label={{ value: 'Avg', position: 'right', fontSize: 10 }}
+                  />
+                  {currentTime > 0 && (
+                    <ReferenceLine 
+                      x={currentTime * 1000}
+                      stroke="hsl(var(--destructive))"
+                      strokeWidth={3}
+                      label={{
+                        value: `▼ ${Math.floor(currentTime / 60)}:${String(Math.floor(currentTime % 60)).padStart(2, '0')}`,
+                        position: 'top',
+                        fontSize: 11,
+                        fontWeight: 'bold',
+                        fill: 'hsl(var(--destructive))',
+                        offset: 5
+                      }}
+                    />
+                  )}
+                  <Line 
+                    type="monotone" 
+                    dataKey="wpm" 
+                    stroke="hsl(var(--primary))" 
+                    strokeWidth={2}
+                    dot={{ r: 2 }}
+                    activeDot={{ r: 4 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="flex items-center justify-center gap-4 mt-2 text-xs text-muted-foreground">
+              <div className="flex items-center gap-1">
+                <div className="w-4 h-0.5 bg-primary" />
+                <span>WPM</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-4 h-0.5 border-t border-dashed border-muted-foreground" />
+                <span>Average ({Math.round(getAverageSpeechRate())} WPM)</span>
+              </div>
+            </div>
+            {wpmChartClockActive && (
+              <div className="text-center mt-2 text-sm font-medium text-primary">
+                ▶ {Math.floor(currentTime / 1000 / 60)}m {String(Math.floor((currentTime / 1000) % 60)).padStart(2, '0')}s
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Volume Timeline Chart */}
+        {getVolumeTimelineData().length > 0 && (
+          <div className="mb-6 rounded-lg border bg-card text-card-foreground shadow-sm p-4" data-export-chart="volume">
+            <h3 className="text-base font-semibold mb-3">Speaking Volume Over Time</h3>
+            <div className="h-48 w-full cursor-pointer">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart 
+                  data={getVolumeTimelineData()} 
+                  margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
+                  onClick={(data) => {
+                    const d = data as unknown as { activePayload?: Array<{ payload?: { time?: number } }> };
+                    if (d?.activePayload?.[0]?.payload?.time !== undefined && audioRef.current) {
+                      const timeMs = d.activePayload[0].payload!.time!;
+                      audioRef.current.currentTime = timeMs / 1000;
+                      void playSermonAudio();
+                      setVolumeChartClockActive(true);
+                    }
+                  }}
+                >
+                  <XAxis 
+                    dataKey="time" 
+                    type="number"
+                    domain={['dataMin', 'dataMax']}
+                    tick={{ fontSize: 10 }} 
+                    tickFormatter={(ms) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, '0')}`}
+                    interval="preserveStartEnd"
+                  />
+                  <YAxis 
+                    tick={{ fontSize: 10 }} 
+                    domain={[0, 'dataMax + 20']}
+                    width={40}
+                    tickFormatter={(value) => `${value}%`}
+                  />
+                  <Tooltip 
+                    formatter={(value: unknown) => [`${value}%`, 'Volume']}
+                    labelFormatter={(ms: unknown) => `Time: ${Math.floor((ms as number) / 60000)}:${String(Math.floor(((ms as number) % 60000) / 1000)).padStart(2, '0')}`}
+                    contentStyle={{ fontSize: 12 }}
+                  />
+                  <ReferenceLine 
+                    y={100} 
+                    stroke="hsl(var(--muted-foreground))" 
+                    strokeDasharray="5 5"
+                    label={{ value: 'Avg', position: 'right', fontSize: 10 }}
+                  />
+                  {currentTime > 0 && (
+                    <ReferenceLine 
+                      x={currentTime * 1000}
+                      stroke="hsl(var(--destructive))"
+                      strokeWidth={3}
+                      label={{
+                        value: `▼ ${Math.floor(currentTime / 60)}:${String(Math.floor(currentTime % 60)).padStart(2, '0')}`,
+                        position: 'top',
+                        fontSize: 11,
+                        fontWeight: 'bold',
+                        fill: 'hsl(var(--destructive))',
+                        offset: 5
+                      }}
+                    />
+                  )}
+                  <Line 
+                    type="monotone" 
+                    dataKey="volume" 
+                    stroke="hsl(var(--chart-3))" 
+                    strokeWidth={2}
+                    dot={{ r: 2 }}
+                    activeDot={{ r: 4 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="flex items-center justify-center gap-4 mt-2 text-xs text-muted-foreground">
+              <div className="flex items-center gap-1">
+                <div className="w-4 h-0.5" style={{ backgroundColor: 'hsl(var(--chart-3))' }} />
+                <span>Volume</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-4 h-0.5 border-t border-dashed border-muted-foreground" />
+                <span>Baseline (100%)</span>
+              </div>
+            </div>
+            {volumeChartClockActive && (
+              <div className="text-center mt-2 text-sm font-medium text-primary">
+                ▶ {Math.floor(currentTime / 1000 / 60)}m {String(Math.floor((currentTime / 1000) % 60)).padStart(2, '0')}s
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Part 3 will add analytics dashboard here */}
       </div>
     </div>
   );
