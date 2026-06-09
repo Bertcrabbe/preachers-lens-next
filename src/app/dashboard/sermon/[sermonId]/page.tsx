@@ -3424,7 +3424,1126 @@ export default function SermonViewer() {
           </div>
         )}
 
-        {/* Part 3 will add analytics dashboard here */}
+        {/* Sermon Dashboard */}
+        <Card className={`mb-6 shadow-lg animate-slide-up transition-all duration-300 ${dashboardCollapsed ? 'py-2 px-4' : 'p-6'}`}>
+          <div
+            className="w-full flex items-center justify-between cursor-pointer"
+            onClick={() => setDashboardCollapsed((v) => !v)}
+          >
+            <h2 className={`font-semibold text-gradient-primary transition-all duration-300 ${dashboardCollapsed ? 'text-sm' : 'text-xl'}`}>Sermon Analytics</h2>
+            {dashboardCollapsed && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDashboardCollapsed(false);
+                }}
+                title="Expand Analytics"
+              >
+                <ChevronDown className="h-4 w-4" />
+              </Button>
+            )}
+            {!dashboardCollapsed && (
+              <div className="flex items-center gap-2 ml-3">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    AI Categories
+                    <ChevronDown className="h-3 w-3 ml-1" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="end"
+                  className="w-64 p-3 bg-background border shadow-lg z-50"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <p className="text-xs font-medium mb-2 text-muted-foreground">Show AI comment categories:</p>
+                  {rules.length === 0 && (
+                    <p className="text-xs text-muted-foreground italic">No AI rules loaded yet.</p>
+                  )}
+                  <div className="space-y-2">
+                    {rules.map((rule) => {
+                      const checked = !hiddenRuleIds.has(rule._id as string);
+                      return (
+                        <label key={rule._id as string} className="flex items-center gap-2 cursor-pointer text-sm">
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={(v) => {
+                              setHiddenRuleIds((prev) => {
+                                const next = new Set(prev);
+                                if (v === true) next.delete(rule._id as string);
+                                else next.add(rule._id as string);
+                                return next;
+                              });
+                              // If user enables a category, make sure master hide is off
+                              if (v === true) setHideAIEvalComments(false);
+                            }}
+                          />
+                          <span
+                            className="inline-block w-2 h-2 rounded-full"
+                            style={{ backgroundColor: rule.color }}
+                          />
+                          <span className="flex-1 truncate">{rule.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </PopoverContent>
+              </Popover>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (anyAIOverlayActive) {
+                    clearAllAIOverlays();
+                  } else {
+                    // Re-show AI eval comments if they were hidden
+                    setHideAIEvalComments(false);
+                    setHiddenRuleIds(new Set());
+                  }
+                }}
+              >
+                {anyAIOverlayActive ? "Hide AI Highlights" : "Show AI Comments"}
+              </Button>
+              </div>
+            )}
+          </div>
+          <div
+            className={`overflow-hidden transition-all duration-300 ${dashboardCollapsed ? 'max-h-0 opacity-0 mt-0' : 'mt-4'}`}
+          >
+          {/* Engagement Score Card - Full Width */}
+          <Card className="stats-card p-4 mb-4">
+            <div className="flex items-start justify-between mb-3">
+              <h3 className="text-base font-bold text-amber-700">Engagement Score</h3>
+              <div className="flex gap-2">
+                {(loadingIllustrations || loadingEmotional) && (
+                  <span className="flex items-center text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                    {loadingIllustrations && loadingEmotional
+                      ? "Analyzing stories & heart..."
+                      : loadingIllustrations
+                      ? "Analyzing stories..."
+                      : "Analyzing emotional resonance..."}
+                  </span>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 text-xs px-2"
+                  onClick={() => setEngagementExpanded(!engagementExpanded)}
+                >
+                  {engagementExpanded ? "Collapse" : "Details"}
+                </Button>
+              </div>
+            </div>
+            <div className="flex flex-col items-center text-center mb-3">
+              <div className="text-4xl font-bold text-amber-600">
+                <AnimatedCounter value={getEngagementScore().total} /><span className="text-lg text-muted-foreground">/10</span>
+              </div>
+              <div className="text-sm text-muted-foreground mt-1">
+                Overall Engagement
+                {getEngagementScore().hasPendingAiMetrics && " (provisional while AI metrics load)"}
+              </div>
+            </div>
+            {engagementExpanded && (
+              <div className="space-y-2 border-t pt-3">
+                {getEngagementScore().subscores.map((sub) => (
+                  <div key={sub.label} className="flex items-center justify-between text-sm">
+                    <span className="flex items-center gap-1.5">
+                      <span>{sub.icon}</span>
+                      <span>{sub.label}</span>
+                      {!sub.loaded && (
+                        <span className="text-xs text-muted-foreground italic">(not loaded)</span>
+                      )}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <div className="w-20 h-2 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            !sub.loaded ? 'bg-muted-foreground/40' : sub.score >= 7 ? 'bg-emerald-500' : sub.score >= 4 ? 'bg-amber-500' : 'bg-red-500'
+                          }`}
+                          style={{ width: `${sub.loaded ? (sub.score / 10) * 100 : 0}%` }}
+                        />
+                      </div>
+                      <span className={`font-semibold w-6 text-right ${
+                        !sub.loaded ? 'text-muted-foreground' : sub.score >= 7 ? 'text-emerald-600' : sub.score >= 4 ? 'text-amber-600' : 'text-red-600'
+                      }`}>{sub.loaded ? sub.score : '—'}</span>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Inline Emotional Resonance Details */}
+                {emotionalData && (
+                  <div className="mt-3 pt-3 border-t space-y-3">
+                    <p className="text-xs font-medium text-rose-600 dark:text-rose-400 mb-2">❤️ Emotional Resonance Breakdown</p>
+                    {emotionalData.summary && (
+                      <p className="text-sm text-muted-foreground italic">{emotionalData.summary}</p>
+                    )}
+                    <div className="space-y-2">
+                      {[
+                        { label: "Vulnerability", score: emotionalData.subscores.vulnerability, icon: "🫀" },
+                        { label: "Affective Language", score: emotionalData.subscores.affective_language, icon: "💬" },
+                        { label: "Sensory & Concrete Imagery", score: emotionalData.subscores.sensory_imagery, icon: "🎨" },
+                        { label: "Pathos Moments", score: emotionalData.subscores.pathos_moments, icon: "✨" },
+                      ].map((sub) => (
+                        <div key={sub.label} className="flex items-center justify-between text-sm">
+                          <span className="flex items-center gap-1.5">
+                            <span>{sub.icon}</span>
+                            <span>{sub.label}</span>
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <div className="w-20 h-2 bg-muted rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${
+                                  sub.score >= 7 ? 'bg-emerald-500' : sub.score >= 4 ? 'bg-amber-500' : 'bg-red-500'
+                                }`}
+                                style={{ width: `${(sub.score / 10) * 100}%` }}
+                              />
+                            </div>
+                            <span className={`font-semibold w-6 text-right ${
+                              sub.score >= 7 ? 'text-emerald-600' : sub.score >= 4 ? 'text-amber-600' : 'text-red-600'
+                            }`}>{sub.score}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Head/Heart ratio bar */}
+                    <div className="pt-2 border-t">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+                        <span>Head 🧠</span>
+                        <span className="font-medium text-foreground">
+                          {emotionalData.affective_percentage}% Heart
+                        </span>
+                        <span>❤️ Heart</span>
+                      </div>
+                      <div className="h-2 w-full rounded-full overflow-hidden bg-sky-200 dark:bg-sky-950 relative">
+                        <div
+                          className="h-full bg-rose-500 transition-all"
+                          style={{ width: `${Math.max(0, Math.min(100, emotionalData.affective_percentage))}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Pathos moments */}
+                    {emotionalData.pathos_moments && emotionalData.pathos_moments.length > 0 && (
+                      <div className="pt-2 border-t">
+                        <p className="text-xs font-medium text-muted-foreground mb-2">Pathos Moments</p>
+                        <div className="space-y-2 max-h-64 overflow-y-auto">
+                          {emotionalData.pathos_moments.map((m, i) => (
+                            <div key={i} className="text-xs p-2 rounded-md bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900">
+                              <div className="flex items-center gap-2 mb-1">
+                                <Badge variant="outline" className="capitalize text-[10px] py-0 h-4">{m.type}</Badge>
+                                <span className="text-muted-foreground italic">{m.note}</span>
+                              </div>
+                              <p className="text-foreground">"{m.excerpt}"</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Story Breakdown */}
+                {illustrationData && (
+                  <div className="mt-3 pt-3 border-t">
+                    <p className="text-xs font-medium text-amber-600 dark:text-amber-400 mb-2">🎭 Story Breakdown:</p>
+                    <div className="grid grid-cols-3 gap-2 text-xs text-center">
+                      {illustrationData.breakdown.stories > 0 && (
+                        <div><div className="font-semibold text-amber-600">{illustrationData.breakdown.stories}</div><div className="text-muted-foreground">Stories</div></div>
+                      )}
+                      {illustrationData.breakdown.humor > 0 && (
+                        <div><div className="font-semibold text-amber-600">{illustrationData.breakdown.humor}</div><div className="text-muted-foreground">Humor</div></div>
+                      )}
+                      {illustrationData.breakdown.illustrations > 0 && (
+                        <div><div className="font-semibold text-amber-600">{illustrationData.breakdown.illustrations}</div><div className="text-muted-foreground">Illustrations</div></div>
+                      )}
+                      {illustrationData.breakdown.audience_interactions > 0 && (
+                        <div><div className="font-semibold text-amber-600">{illustrationData.breakdown.audience_interactions}</div><div className="text-muted-foreground">Crowd Work</div></div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </Card>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Card className="stats-card p-4">
+              <div className="flex items-start justify-between mb-2">
+                <h3 className="text-base font-bold text-primary">Words Per Minute</h3>
+              </div>
+              <div className="flex flex-col items-center text-center">
+                <div className="text-4xl font-bold text-gradient-primary">
+                  <AnimatedCounter value={Math.round(getAverageSpeechRate())} />
+                </div>
+                <div className="text-sm text-muted-foreground mt-1">
+                  Average WPM
+                </div>
+              </div>
+              {/* WPM Sparkline */}
+              <div className="flex justify-center mt-2 mb-1">
+                <Sparkline 
+                  data={getWpmTimelineData().map(d => d.wpm)} 
+                  color="hsl(var(--primary))" 
+                  showAvgLine 
+                  width={140} 
+                  height={28} 
+                />
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-center border-t pt-3">
+                <div>
+                  <div className="font-semibold text-primary">{sentences.reduce((sum, s) => sum + s.sentenceText.trim().split(/\s+/).length, 0).toLocaleString()}</div>
+                  <div className="text-muted-foreground">Total Words</div>
+                </div>
+                <div>
+                  <div className="font-semibold text-primary">±{Math.round(getSpeedVariance().stdDev)}</div>
+                  <div className="text-muted-foreground">Std Dev</div>
+                </div>
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-center border-t pt-2">
+                <div>
+                  <div className="font-semibold text-primary">{Math.round(getSpeedVariance().min)}</div>
+                  <div className="text-muted-foreground">Min WPM</div>
+                </div>
+                <div>
+                  <div className="font-semibold text-primary">{Math.round(getSpeedVariance().max)}</div>
+                  <div className="text-muted-foreground">Max WPM</div>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="stats-card p-4">
+              <div className="flex items-start justify-between mb-2">
+                <h3 className="text-base font-bold text-rose-700">Pace Dynamics</h3>
+              </div>
+              <div className="flex flex-col items-center text-center">
+                <div className="text-3xl font-bold text-rose-600">
+                  <AnimatedCounter value={countSustainedDeviations(25).total} />
+                </div>
+                <div className="text-sm text-muted-foreground mt-1">
+                  Sustained Deviations
+                </div>
+              </div>
+              {/* Pace Dynamics Sparkline - show % deviation from baseline */}
+              <div className="flex justify-center mt-2 mb-1">
+                <Sparkline 
+                  data={(() => {
+                    const avgWpm = getAverageSpeechRate();
+                    if (avgWpm === 0) return [];
+                    return sentences.map(s => {
+                      const dur = (s.endTimeMs - s.startTimeMs) / 1000;
+                      if (dur <= 0) return 0;
+                      const words = s.sentenceText.split(/\s+/).filter(Boolean).length;
+                      const wpm = (words / dur) * 60;
+                      return Math.abs(wpm - avgWpm) / avgWpm * 100;
+                    });
+                  })()}
+                  color="#e11d48"
+                  width={140} 
+                  height={28} 
+                />
+              </div>
+              <div className="mt-2 border-t pt-3">
+                <div className="grid grid-cols-3 gap-1 text-xs text-center">
+                  <div className="col-span-3 text-left text-muted-foreground font-medium mb-1 flex items-center gap-1">
+                    <span className="inline-block w-2 h-2 rounded-full bg-rose-500" /> Faster
+                  </div>
+                  {[25, 35, 45].map(pct => (
+                    <div key={pct}>
+                      <div className="font-semibold text-rose-600">{countSustainedDeviations(pct).faster}</div>
+                      <div className="text-muted-foreground">+{pct}%</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-3 gap-1 text-xs text-center mt-2">
+                  <div className="col-span-3 text-left text-muted-foreground font-medium mb-1 flex items-center gap-1">
+                    <span className="inline-block w-2 h-2 rounded-full bg-blue-500" /> Slower
+                  </div>
+                  {[25, 35, 45].map(pct => (
+                    <div key={pct}>
+                      <div className="font-semibold text-blue-600">{countSustainedDeviations(pct).slower}</div>
+                      <div className="text-muted-foreground">-{pct}%</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </Card>
+
+
+            <Card 
+              className="stats-card p-4 cursor-pointer"
+              onClick={() => setShowVolumeChanges(!showVolumeChanges)}
+            >
+              <div className="flex items-start justify-between mb-2">
+                <h3 className="text-base font-bold text-amber-700">Volume Dynamics</h3>
+                <Checkbox
+                  checked={showVolumeChanges}
+                  onCheckedChange={(checked) => setShowVolumeChanges(checked === true)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="mt-1"
+                />
+              </div>
+              <div className="flex flex-col items-center text-center">
+                <div className="text-3xl font-bold text-amber-600">
+                  <AnimatedCounter value={countSustainedVolumeDeviations(25).total} />
+                </div>
+                <div className="text-sm text-muted-foreground mt-1">
+                  Sustained Deviations
+                </div>
+              </div>
+              {/* Volume Dynamics Sparkline */}
+              <div className="flex justify-center mt-2 mb-1">
+                <Sparkline 
+                  data={getVolumeTimelineData().map(d => d.volume)} 
+                  color="#f59e0b" 
+                  width={140} 
+                  height={28} 
+                  showAvgLine
+                />
+              </div>
+              <div className="mt-2 border-t pt-3">
+                <div className="grid grid-cols-3 gap-1 text-xs text-center">
+                  <div className="col-span-3 text-left text-muted-foreground font-medium mb-1 flex items-center gap-1">
+                    <span className="inline-block w-2 h-2 rounded-full bg-amber-500" /> Louder
+                  </div>
+                  {[25, 35, 45].map(pct => (
+                    <div key={pct}>
+                      <div className="font-semibold text-amber-600">{countSustainedVolumeDeviations(pct).louder}</div>
+                      <div className="text-muted-foreground">+{pct}%</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-3 gap-1 text-xs text-center mt-2">
+                  <div className="col-span-3 text-left text-muted-foreground font-medium mb-1 flex items-center gap-1">
+                    <span className="inline-block w-2 h-2 rounded-full bg-blue-500" /> Softer
+                  </div>
+                  {[25, 35, 45].map(pct => (
+                    <div key={pct}>
+                      <div className="font-semibold text-blue-600">{countSustainedVolumeDeviations(pct).softer}</div>
+                      <div className="text-muted-foreground">-{pct}%</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </Card>
+
+            <Card 
+              className="stats-card p-4"
+            >
+              <div className="flex items-start justify-between mb-3">
+                <h3 className="text-base font-bold text-orange-700">Filler Words</h3>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                    <Button variant="outline" size="sm" className="h-6 text-xs px-2">
+                      View All
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56 max-h-64 overflow-y-auto bg-background border shadow-lg z-50">
+                    {getAllFillerWords().length === 0 ? (
+                      <DropdownMenuItem disabled className="text-muted-foreground">
+                        No filler words found
+                      </DropdownMenuItem>
+                    ) : (
+                      getAllFillerWords().map((filler) => (
+                        <DropdownMenuItem 
+                          key={filler.word}
+                          className="flex justify-between cursor-pointer"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleFillerWord(filler.word);
+                          }}
+                        >
+                          <span className="capitalize truncate mr-2">{filler.word}</span>
+                          <span className="font-semibold text-orange-600">{filler.count}</span>
+                        </DropdownMenuItem>
+                      ))
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+              <div className="flex flex-col items-center text-center mb-4">
+                <div className="text-3xl font-bold text-orange-600">
+                  <AnimatedCounter value={countVerbalPauses()} />
+                </div>
+                <div className="text-sm text-muted-foreground mt-1">
+                  Filler Words Used
+                </div>
+              </div>
+              <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+                <div className="text-xs text-muted-foreground mb-2">
+                  <p className="font-medium">Top 3 Overused Words/Phrases:</p>
+                  <p className="mt-1 text-xs opacity-80">Consider replacing with intentional pauses</p>
+                </div>
+                {getTopFillerWords().map((filler) => (
+                  <div key={filler.word} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        checked={visibleFillerWords.has(filler.word)}
+                        onCheckedChange={() => toggleFillerWord(filler.word)}
+                      />
+                      <div 
+                        className="w-3 h-3 rounded-full" 
+                        style={{ backgroundColor: filler.color }}
+                      />
+                      <span className="text-sm capitalize">{filler.word}</span>
+                    </div>
+                    <span className="text-sm font-medium">{filler.count}</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            <Card 
+              className="stats-card p-4 cursor-pointer"
+              onClick={() => setShowSilentPauses(!showSilentPauses)}
+            >
+              <div className="flex items-start justify-between mb-3">
+                <h3 className="text-base font-bold text-blue-700">Use of Silence</h3>
+                <div className="flex items-center gap-2">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                    <Button variant="outline" size="sm" className="h-6 text-xs px-2">
+                      View All
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56 max-h-64 overflow-y-auto bg-background border shadow-lg z-50">
+                    {getSilentPauseTimestamps().length === 0 ? (
+                      <DropdownMenuItem disabled className="text-muted-foreground">
+                        No silent pauses found
+                      </DropdownMenuItem>
+                    ) : (
+                      getSilentPauseTimestamps().map((p, idx) => (
+                        <DropdownMenuItem
+                          key={idx}
+                          className="flex justify-between cursor-pointer"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (audioRef.current) {
+                              audioRef.current.currentTime = p.start / 1000;
+                            }
+                          }}
+                        >
+                          <span>{`${Math.floor(p.start / 60000)}:${String(Math.floor((p.start % 60000) / 1000)).padStart(2, '0')}`}</span>
+                          <span className="font-semibold text-blue-600">{(p.durationMs / 1000).toFixed(1)}s</span>
+                        </DropdownMenuItem>
+                      ))
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                  <Checkbox
+                    checked={showSilentPauses}
+                    onCheckedChange={(checked) => setShowSilentPauses(checked === true)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-col items-center text-center mb-3">
+                <div className="text-3xl font-bold text-blue-600">
+                  <AnimatedCounter value={countSilentPauses()} />
+                </div>
+                <div className="text-sm text-muted-foreground mt-1">
+                  Pauses ≥ 3 seconds
+                </div>
+              </div>
+              {getSilentPauseTimestamps().length > 0 && (
+                <div className="text-xs text-muted-foreground text-center">
+                  Longest: {(Math.max(...getSilentPauseTimestamps().map(p => p.durationMs)) / 1000).toFixed(1)}s
+                </div>
+              )}
+            </Card>
+
+            <Card 
+              className="stats-card p-4 cursor-pointer"
+              onClick={() => setShowScriptureRefs(!showScriptureRefs)}
+            >
+              <div className="flex items-start justify-between mb-2">
+                <h3 className="text-base font-bold text-emerald-700">Scripture References</h3>
+                <Checkbox
+                  checked={showScriptureRefs}
+                  onCheckedChange={(checked) => setShowScriptureRefs(checked === true)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="mt-1"
+                />
+              </div>
+              <div className="flex flex-col items-center text-center mb-3">
+                <div className="text-3xl font-bold text-emerald-600">
+                  {loadingScriptures ? (
+                    <Loader2 className="h-8 w-8 animate-spin" />
+                  ) : (
+                    <AnimatedCounter value={scriptureRefs.length} />
+                  )}
+                </div>
+                <div className="text-sm text-muted-foreground mt-1">
+                  Biblical Citations
+                </div>
+              </div>
+              {scriptureRefs && scriptureRefs.length > 0 && (
+                <div className="space-y-2 max-h-40 overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                  <div className="text-xs text-muted-foreground mb-2">
+                    <p className="font-medium">Scripture References:</p>
+                  </div>
+                  {scriptureRefs.map((ref, idx) => (
+                    <div key={idx} className="text-sm border-l-2 border-emerald-500 pl-2 py-1">
+                      <div className="font-medium text-emerald-700">
+                        {ref.reference}
+                      </div>
+                      <div className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
+                        {ref.context ? `${ref.context.substring(0, 100)}...` : ''}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {scriptureRefs.length === 0 && !loadingScriptures && (
+                <div className="text-xs text-center text-muted-foreground">
+                  No scripture references found
+                </div>
+              )}
+            </Card>
+
+            <Card 
+              className="stats-card p-4 cursor-pointer"
+              onClick={() => {
+                setShowConfusingPhrases(!showConfusingPhrases);
+              }}
+            >
+              <div className="flex items-start justify-between mb-2">
+                <h3 className="text-base font-bold text-red-700">Insider Language</h3>
+                <Checkbox
+                  checked={showConfusingPhrases}
+                  onCheckedChange={(checked) => setShowConfusingPhrases(checked === true)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="mt-1"
+                />
+              </div>
+              <div className="flex flex-col items-center text-center mb-3">
+                <div className="text-3xl font-bold text-red-600">
+                  {loadingConfusing ? (
+                    <Loader2 className="h-8 w-8 animate-spin" />
+                  ) : (
+                    <AnimatedCounter value={confusingPhrases.length} />
+                  )}
+                </div>
+                <div className="text-sm text-muted-foreground mt-1">
+                  Confusing Phrases
+                </div>
+              </div>
+              {confusingPhrases && confusingPhrases.length > 0 && (
+                <div className="space-y-2 max-h-48 overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                  <div className="text-xs text-muted-foreground mb-2">
+                    <p className="font-medium">Flagged for first-time visitors:</p>
+                  </div>
+                  {confusingPhrases.map((phrase, idx) => (
+                    <div key={idx} className="text-sm border-l-2 pl-2 py-1" style={{
+                      borderColor: phrase.severity === 'severe' ? '#ef4444' : phrase.severity === 'moderate' ? '#f97316' : '#eab308'
+                    }}>
+                      <div className="font-medium text-red-700">
+                        "{phrase.phrase}"
+                        <Badge variant="outline" className="ml-1 text-[10px] px-1 py-0" style={{
+                          borderColor: phrase.severity === 'severe' ? '#ef4444' : phrase.severity === 'moderate' ? '#f97316' : '#eab308',
+                          color: phrase.severity === 'severe' ? '#ef4444' : phrase.severity === 'moderate' ? '#f97316' : '#eab308',
+                        }}>
+                          {phrase.severity}
+                        </Badge>
+                      </div>
+                      <div className="text-xs text-emerald-700 mt-0.5">💡 {phrase.suggestion}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {confusingPhrases.length === 0 && !loadingConfusing && (
+                <div className="text-xs text-center text-muted-foreground">
+                  No insider language detected
+                </div>
+              )}
+            </Card>
+
+            <Card className="stats-card p-4">
+              <div className="flex items-start justify-between mb-3">
+                <h3 className="text-base font-bold text-teal-700">Repeated Phrases</h3>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                    <Button variant="outline" size="sm" className="h-6 text-xs px-2">
+                      View All
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56 max-h-64 overflow-y-auto bg-background border shadow-lg z-50">
+                    {getRepeatedPhrases(3).length === 0 ? (
+                      <DropdownMenuItem disabled className="text-muted-foreground">
+                        No repeated phrases found
+                      </DropdownMenuItem>
+                    ) : (
+                      getRepeatedPhrases(3).map((item) => (
+                        <DropdownMenuItem 
+                          key={item.word}
+                          className="flex justify-between cursor-pointer"
+                        >
+                          <span className="capitalize truncate mr-2">{item.word}</span>
+                          <span className="font-semibold text-teal-600">{item.count}</span>
+                        </DropdownMenuItem>
+                      ))
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+              <div className="flex flex-col items-center text-center mb-4">
+                <div className="text-3xl font-bold text-teal-600">
+                  <AnimatedCounter value={getRepeatedPhrases(3).length} />
+                </div>
+                <div className="text-sm text-muted-foreground mt-1">
+                  Phrases Used 3+ Times
+                </div>
+              </div>
+              {getRepeatedPhrases(3).length > 0 && (
+                <div className="space-y-1 max-h-40 overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                  <div className="text-xs text-muted-foreground mb-2">
+                    <p className="font-medium">Most Repeated Phrases:</p>
+                  </div>
+                  {getRepeatedPhrases(3).slice(0, 10).map((item) => (
+                    <div key={item.word} className="flex items-center justify-between text-sm">
+                      <span className="capitalize">{item.word}</span>
+                      <span className="font-medium text-teal-600">{item.count}×</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+
+            <Card 
+              className="stats-card p-4 cursor-pointer"
+              onClick={() => setShowQuestions(!showQuestions)}
+            >
+              <div className="flex items-start justify-between mb-2">
+                <h3 className="text-base font-bold text-amber-700">Questions Asked</h3>
+                <Checkbox
+                  checked={showQuestions}
+                  onCheckedChange={(checked) => setShowQuestions(checked === true)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="mt-1"
+                />
+              </div>
+              <div className="flex flex-col items-center text-center mb-3">
+                <div className="text-3xl font-bold text-amber-600">
+                  {loadingQuestions ? (
+                    <Loader2 className="h-8 w-8 animate-spin" />
+                  ) : (
+                    <AnimatedCounter value={sentences.filter((s, sIdx) => {
+                      if (!s.sentenceText.trim().endsWith('?')) return false;
+                      if (isSentenceInScripture(s.sentenceText, sIdx)) return false;
+                      if (congregationQuestionIndices && !congregationQuestionIndices.has(sIdx)) return false;
+                      return true;
+                    }).length} />
+                  )}
+                </div>
+                <div className="text-sm text-muted-foreground mt-1">
+                  to the congregation
+                </div>
+              </div>
+              {!loadingQuestions && (() => {
+                const questions = sentences
+                  .map((s, sIdx) => ({ s, sIdx }))
+                  .filter(({ s, sIdx }) => {
+                    if (!s.sentenceText.trim().endsWith('?')) return false;
+                    if (isSentenceInScripture(s.sentenceText, sIdx)) return false;
+                    if (congregationQuestionIndices && !congregationQuestionIndices.has(sIdx)) return false;
+                    return true;
+                  });
+                return questions.length > 0 ? (
+                  <div className="space-y-2 max-h-48 overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                    <div className="text-xs text-muted-foreground mb-2">
+                      <p className="font-medium">Questions identified:</p>
+                    </div>
+                    {questions.map(({ s, sIdx }) => (
+                      <div 
+                        key={sIdx} 
+                        className="text-sm border-l-2 border-amber-500 pl-2 py-1 cursor-pointer hover:bg-amber-50 dark:hover:bg-amber-950/20 rounded-r"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (audioRef.current) {
+                            audioRef.current.currentTime = s.startTimeMs / 1000;
+                            void playSermonAudio();
+                          }
+                        }}
+                      >
+                        <div className="text-amber-800 dark:text-amber-300">"{s.sentenceText}"</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {Math.floor(s.startTimeMs / 1000 / 60)}:{String(Math.floor((s.startTimeMs / 1000) % 60)).padStart(2, "00")}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null;
+              })()}
+            </Card>
+
+            <Card 
+              className="stats-card p-4 cursor-pointer"
+              onClick={() => setShowMissedQuestions(!showMissedQuestions)}
+            >
+              <div className="flex items-start justify-between mb-2">
+                <h3 className="text-base font-bold text-rose-700">Missed Question Opportunities</h3>
+                <Checkbox
+                  checked={showMissedQuestions}
+                  onCheckedChange={(checked) => setShowMissedQuestions(checked === true)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="mt-1"
+                />
+              </div>
+              <div className="flex flex-col items-center text-center mb-3">
+                <div className="text-3xl font-bold text-rose-600">
+                  {loadingMissedQuestions ? (
+                    <Loader2 className="h-8 w-8 animate-spin" />
+                  ) : (
+                    <AnimatedCounter value={missedQuestionsData?.opportunities.length ?? 0} />
+                  )}
+                </div>
+                <div className="text-sm text-muted-foreground mt-1">
+                  statements that could be questions
+                </div>
+              </div>
+              {!loadingMissedQuestions && missedQuestionsData && missedQuestionsData.opportunities.length > 0 && (
+                <div className="space-y-2 max-h-64 overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                  <div className="text-xs text-muted-foreground mb-2">
+                    <p className="font-medium">Try rephrasing these as questions:</p>
+                  </div>
+                  {missedQuestionsData.opportunities.map((opp) => {
+                    const s = sentences[opp.index];
+                    if (!s) return null;
+                    return (
+                      <div
+                        key={opp.index}
+                        className="text-sm border-l-2 border-rose-500 pl-2 py-1 cursor-pointer hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-r"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (audioRef.current) {
+                            audioRef.current.currentTime = s.startTimeMs / 1000;
+                            void playSermonAudio();
+                          }
+                        }}
+                      >
+                        <div className="text-muted-foreground italic line-through decoration-rose-300/60">
+                          "{opp.statement}"
+                        </div>
+                        <div className="text-rose-800 dark:text-rose-300 font-medium mt-1">
+                          → "{opp.suggested_question}"
+                        </div>
+                        {opp.reason && (
+                          <div className="text-xs text-muted-foreground mt-0.5">{opp.reason}</div>
+                        )}
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {Math.floor(s.startTimeMs / 1000 / 60)}:{String(Math.floor((s.startTimeMs / 1000) % 60)).padStart(2, "0")}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {!loadingMissedQuestions && missedQuestionsData && missedQuestionsData.opportunities.length === 0 && (
+                <p className="text-xs text-muted-foreground text-center">
+                  No clear opportunities flagged. Statements about shared experience are already engaging or unavoidably declarative.
+                </p>
+              )}
+            </Card>
+
+          </div>
+
+          {/* Sermon Intent: Know / Feel / Do */}
+          <Card className="mt-6 p-5 bg-gradient-to-br from-indigo-50/50 via-card to-rose-50/30 dark:from-indigo-950/20 dark:via-card dark:to-rose-950/10 border-indigo-200/50 dark:border-indigo-800/30">
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <h3 className="text-base font-bold text-indigo-700 dark:text-indigo-400">Preacher's Intent</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  What the AI thinks the preacher wants listeners to <span className="font-medium">know</span>, <span className="font-medium">feel</span>, and <span className="font-medium">do</span>.
+                </p>
+              </div>
+              {loadingIntent && (
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              )}
+            </div>
+
+            {!loadingIntent && intentData ? (
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="rounded-lg border border-blue-200/60 dark:border-blue-800/40 bg-blue-50/40 dark:bg-blue-950/20 p-3">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="text-lg">🧠</span>
+                      <h4 className="text-sm font-bold text-blue-700 dark:text-blue-400">Know</h4>
+                    </div>
+                    <p className="text-sm text-foreground/90 leading-relaxed">{intentData.know || "—"}</p>
+                  </div>
+                  <div className="rounded-lg border border-rose-200/60 dark:border-rose-800/40 bg-rose-50/40 dark:bg-rose-950/20 p-3">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="text-lg">❤️</span>
+                      <h4 className="text-sm font-bold text-rose-700 dark:text-rose-400">Feel</h4>
+                    </div>
+                    <p className="text-sm text-foreground/90 leading-relaxed">{intentData.feel || "—"}</p>
+                  </div>
+                  <div className="rounded-lg border border-emerald-200/60 dark:border-emerald-800/40 bg-emerald-50/40 dark:bg-emerald-950/20 p-3">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="text-lg">🎯</span>
+                      <h4 className="text-sm font-bold text-emerald-700 dark:text-emerald-400">Do</h4>
+                    </div>
+                    <p className="text-sm text-foreground/90 leading-relaxed">{intentData.do || "—"}</p>
+                  </div>
+                </div>
+              </div>
+            ) : !loadingIntent ? (
+              <p className="text-sm text-muted-foreground">No intent analysis yet.</p>
+            ) : (
+              <p className="text-sm text-muted-foreground">Analyzing the preacher's intent...</p>
+            )}
+          </Card>
+
+          <Collapsible open={coachOpen} onOpenChange={setCoachOpen} className="mt-6">
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+                <CollapsibleTrigger className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+                  <Sparkles className="h-5 w-5 text-primary" />
+                  <h3 className="text-lg font-semibold">Digital Bert</h3>
+                </CollapsibleTrigger>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Button
+                    onClick={handleSummarizeComments}
+                    disabled={summarizing || comments.length === 0}
+                    variant="ghost"
+                    size="sm"
+                  >
+                    {summarizing ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Summarizing...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="mr-2 h-4 w-4" />
+                        {commentSummary ? 'Refresh' : 'Comment'} Summary
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    onClick={handleRegenerateCoachAudio}
+                    disabled={coachRegenAudio}
+                    variant="ghost"
+                    size="sm"
+                  >
+                    {coachRegenAudio ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Regenerating...
+                      </>
+                    ) : (
+                      "Regenerate voice audio"
+                    )}
+                  </Button>
+                  <Button
+                    onClick={handleDeleteAllCoachComments}
+                    disabled={coachDeleting}
+                    variant="ghost"
+                    size="sm"
+                  >
+                    {coachDeleting ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Removing...
+                      </>
+                    ) : (
+                      "Delete all AI Coach comments"
+                    )}
+                  </Button>
+                  <Button
+                    onClick={handleGenerateCoachComments}
+                    disabled={coachLoading || sentences.length === 0}
+                    variant="outline"
+                    size="sm"
+                  >
+                    {coachLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Reviewing sermon...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="mr-2 h-4 w-4" />
+                        {coachNotes ? "Re-generate notes" : "Generate AI Coach notes"}
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              <CollapsibleContent className="space-y-4">
+                <p className="text-xs text-muted-foreground">
+                  AI reviews this sermon's transcript and writes 6–10 timestamped coaching notes,
+                  modeled on the voice of your past comments across all sermons.
+                </p>
+
+                <div className="flex items-center justify-between gap-3 flex-wrap rounded-lg border border-border/40 bg-muted/20 px-3 py-2 text-xs">
+                  <div className="text-muted-foreground">
+                    <span className="font-medium text-foreground">Bert's style guide:</span>{" "}
+                    {styleGuide?.last_analyzed_at ? (
+                      <>
+                        last learned{" "}
+                        {new Date(styleGuide.last_analyzed_at).toLocaleDateString(undefined, {
+                          month: "short", day: "numeric", year: "numeric",
+                        })}{" "}
+                        from {styleGuide.comments_analyzed} of your comments. Auto-refreshes Sundays.
+                      </>
+                    ) : (
+                      <>not learned yet — runs automatically Sunday nights, or trigger it now.</>
+                    )}
+                  </div>
+                  <Button
+                    onClick={handleRelearnStyle}
+                    disabled={relearning}
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs"
+                  >
+                    {relearning ? (
+                      <><Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> Learning…</>
+                    ) : (
+                      <><RotateCcw className="mr-1.5 h-3 w-3" /> Re-learn from my comments</>
+                    )}
+                  </Button>
+                </div>
+
+                {commentSummary && (
+                  <div className="space-y-3 rounded-lg border border-border/60 bg-muted/30 p-4">
+                    <div>
+                      <h4 className="font-medium mb-2 text-sm text-muted-foreground">Comment Summary — Overall Assessment</h4>
+                      <p className="text-sm leading-relaxed">{commentSummary.summary}</p>
+                    </div>
+                    <div>
+                      <h4 className="font-medium mb-2 text-sm text-muted-foreground">Key Improvement Areas</h4>
+                      <ul className="space-y-2">
+                        {commentSummary.bulletPoints.map((point, index) => (
+                          <li key={index} className="flex items-start gap-3">
+                            <Badge variant="outline" className="mt-0.5 shrink-0">
+                              {index + 1}
+                            </Badge>
+                            <span className="text-sm leading-relaxed">{point}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                )}
+
+                {coachNotes && coachNotes.length > 0 ? (
+                  <>
+                    <div className="space-y-3">
+                      {coachNotes.map((n, i) => {
+                        const ms = n.start_time_ms || 0;
+                        const ts = `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
+                        return (
+                          <div key={i} className="rounded-lg border border-border/60 bg-muted/30 p-3">
+                            <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                              <Badge variant="default" className="font-mono text-[10px]">#{i + 1}</Badge>
+                              <Badge variant="outline" className="font-mono text-[10px]">{ts}</Badge>
+                              {n.category && (
+                                <Badge variant="secondary" className="text-[10px] capitalize">{n.category}</Badge>
+                              )}
+                              <button
+                                type="button"
+                                className="text-[11px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline ml-auto flex items-center gap-1"
+                                onClick={() => handlePreviewCoachNote(i, n.comment_text)}
+                                disabled={coachPreviewLoadingIdx === i}
+                                title="Hear this in your cloned voice"
+                              >
+                                {coachPreviewLoadingIdx === i ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : coachPreviewPlayingIdx === i ? (
+                                  <Pause className="h-3 w-3" />
+                                ) : (
+                                  <Volume2 className="h-3 w-3" />
+                                )}
+                                {coachPreviewPlayingIdx === i ? "Stop" : "Preview in my voice"}
+                              </button>
+                              <button
+                                type="button"
+                                className="text-[11px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+                                onClick={() => {
+                                  if (audioRef.current) {
+                                    audioRef.current.currentTime = ms / 1000;
+                                    void playSermonAudio();
+                                  }
+                                }}
+                              >
+                                Jump to moment
+                              </button>
+                            </div>
+                            <p className="text-sm leading-relaxed">{n.comment_text}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setCoachNotes(null)}
+                        disabled={coachApplying}
+                      >
+                        Discard
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleApplyCoachComments}
+                        disabled={coachApplying}
+                      >
+                        {coachApplying ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Applying...
+                          </>
+                        ) : (
+                          `Apply ${coachNotes.length} as comments`
+                        )}
+                      </Button>
+                    </div>
+                  </>
+                ) : coachNotes && coachNotes.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    The model didn't return any notes. Try re-generating.
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    Click "Generate AI Coach notes" to have the AI review this sermon and draft comments in your voice.
+                  </p>
+                )}
+              </CollapsibleContent>
+            </Card>
+          </Collapsible>
+          </div>
+          {!dashboardCollapsed && (
+            <div className="mt-4 pt-3 border-t border-border flex justify-center">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 text-xs gap-1"
+                onClick={() => setDashboardCollapsed(true)}
+                title="Collapse Analytics"
+              >
+                <ChevronUp className="h-4 w-4" />
+                Collapse Analytics
+              </Button>
+            </div>
+          )}
+        </Card>
+
+        {/* Part 4 will add transcript + sidebar here */}
       </div>
     </div>
   );
