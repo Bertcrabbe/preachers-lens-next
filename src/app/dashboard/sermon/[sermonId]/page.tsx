@@ -285,6 +285,7 @@ export default function SermonViewerPage() {
   // ── View mode ───────────────────────────────────────────────────────────────
   const [viewMode, setViewMode] = useState<"sentence" | "paragraph">("paragraph");
   const [engagementExpanded, setEngagementExpanded] = useState(false);
+  const [dashboardCollapsed, setDashboardCollapsed] = useState(false);
 
   // ── Auto scroll ─────────────────────────────────────────────────────────────
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
@@ -1037,7 +1038,50 @@ export default function SermonViewerPage() {
         </div>
       </Card>
 
-      {/* ── Two-column layout ── */}
+      {/* ── Analytics dashboard (full-width, collapsible, above transcript) ── */}
+      <Card className={`mb-6 shadow-lg transition-all duration-300 ${dashboardCollapsed ? 'py-2 px-4' : 'p-6'}`}>
+        <div className="w-full flex items-center justify-between cursor-pointer" onClick={() => setDashboardCollapsed((v) => !v)}>
+          <h2 className={`font-semibold transition-all duration-300 ${dashboardCollapsed ? 'text-sm' : 'text-xl'}`} style={{background: 'linear-gradient(135deg, hsl(38,95%,58%), hsl(12,85%,60%))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent'}}>Sermon Analytics</h2>
+          <Button size="icon" variant="ghost" className="h-7 w-7">
+            {dashboardCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+          </Button>
+        </div>
+        <div className={`overflow-hidden transition-all duration-300 ${dashboardCollapsed ? 'max-h-0 opacity-0 mt-0' : 'mt-4'}`}>
+          <AnalyticsSidebar
+            metrics={metrics}
+            sentenceMetricsSorted={sentenceMetricsSorted}
+            fillerWords={fillerWords}
+            silences={silences}
+            longSilences={longSilences}
+            longestSilence={longestSilence}
+            scriptureRefs={scriptureRefs}
+            confusingPhrases={confusingPhrases}
+            accessibilityScore={accessibilityScore}
+            questions={questions}
+            congregationQuestions={congregationQuestions}
+            missedQuestions={missedQuestions}
+            illustrations={illustrations}
+            illustrationTypes={illustrationTypes}
+            intent={intent}
+            avgWpm={avgWpm}
+            wordCount={wordCount}
+            engagementScore={engagementScore}
+            engagementExpanded={engagementExpanded}
+            setEngagementExpanded={setEngagementExpanded}
+            currentMs={currentMs}
+            seekTo={seekTo}
+            coachLoading={coachLoading}
+            coachNotes={coachNotes}
+            coachApplying={coachApplying}
+            hasSentences={sortedSentences.length > 0}
+            onGenerateCoachNotes={handleGenerateCoachNotes}
+            onApplyCoachNotes={handleApplyCoachNotes}
+            onDiscardCoachNotes={() => setCoachNotes(null)}
+          />
+        </div>
+      </Card>
+
+      {/* ── Transcript row ── */}
       <div className="flex gap-4">
         {/* ── Left sidebar ── */}
         <div className="sticky top-4 self-start shrink-0 w-44 hidden lg:block">
@@ -1443,75 +1487,6 @@ export default function SermonViewerPage() {
 
         </div>
 
-        {/* ── Right column: Analytics ── */}
-        <div className="w-80 shrink-0 hidden xl:block sticky top-4 self-start overflow-y-auto max-h-[calc(100vh-6rem)]">
-          <AnalyticsSidebar
-            metrics={metrics}
-            sentenceMetricsSorted={sentenceMetricsSorted}
-            fillerWords={fillerWords}
-            silences={silences}
-            longSilences={longSilences}
-            longestSilence={longestSilence}
-            scriptureRefs={scriptureRefs}
-            confusingPhrases={confusingPhrases}
-            accessibilityScore={accessibilityScore}
-            questions={questions}
-            congregationQuestions={congregationQuestions}
-            missedQuestions={missedQuestions}
-            illustrations={illustrations}
-            illustrationTypes={illustrationTypes}
-            intent={intent}
-            avgWpm={avgWpm}
-            wordCount={wordCount}
-            engagementScore={engagementScore}
-            engagementExpanded={engagementExpanded}
-            setEngagementExpanded={setEngagementExpanded}
-            currentMs={currentMs}
-            seekTo={seekTo}
-            coachLoading={coachLoading}
-            coachNotes={coachNotes}
-            coachApplying={coachApplying}
-            hasSentences={sortedSentences.length > 0}
-            onGenerateCoachNotes={handleGenerateCoachNotes}
-            onApplyCoachNotes={handleApplyCoachNotes}
-            onDiscardCoachNotes={() => setCoachNotes(null)}
-          />
-        </div>
-      </div>
-
-      {/* ── Mobile analytics (below transcript on small screens) ── */}
-      <div className="mt-4 xl:hidden">
-        <AnalyticsSidebar
-          metrics={metrics}
-          sentenceMetricsSorted={sentenceMetricsSorted}
-          fillerWords={fillerWords}
-          silences={silences}
-          longSilences={longSilences}
-          longestSilence={longestSilence}
-          scriptureRefs={scriptureRefs}
-          confusingPhrases={confusingPhrases}
-          accessibilityScore={accessibilityScore}
-          questions={questions}
-          congregationQuestions={congregationQuestions}
-          missedQuestions={missedQuestions}
-          illustrations={illustrations}
-          illustrationTypes={illustrationTypes}
-          intent={intent}
-          avgWpm={avgWpm}
-          wordCount={wordCount}
-          engagementScore={engagementScore}
-          engagementExpanded={engagementExpanded}
-          setEngagementExpanded={setEngagementExpanded}
-          currentMs={currentMs}
-          seekTo={seekTo}
-          coachLoading={coachLoading}
-          coachNotes={coachNotes}
-          coachApplying={coachApplying}
-          hasSentences={sortedSentences.length > 0}
-          onGenerateCoachNotes={handleGenerateCoachNotes}
-          onApplyCoachNotes={handleApplyCoachNotes}
-          onDiscardCoachNotes={() => setCoachNotes(null)}
-        />
       </div>
     </div>
   );
@@ -1601,8 +1576,8 @@ function AnalyticsSidebar({
   onDiscardCoachNotes: () => void;
 }) {
   return (
-    <div className="space-y-3">
-      {/* ── Engagement Score ── */}
+    <div className="space-y-4">
+      {/* ── Engagement Score ── full width */}
       <AnalyticsPanel title="Engagement Score">
         {metrics === undefined ? (
           <AnalyticsSkeleton />
@@ -1663,6 +1638,8 @@ function AnalyticsSidebar({
         )}
       </AnalyticsPanel>
 
+      {/* ── 3-column grid for remaining panels ── */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       {/* ── Speaking Pace / WPM ── */}
       <AnalyticsPanel title="Speaking Pace">
         {metrics === undefined ? (
@@ -2031,6 +2008,7 @@ function AnalyticsSidebar({
           ) : null}
         </div>
       </AnalyticsPanel>
+      </div>
     </div>
   );
 }
