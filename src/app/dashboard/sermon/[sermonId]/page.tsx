@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useMutation, useConvex } from "convex/react";
 import { api } from "../../../../../convex/_generated/api";
 import { useUser } from "@clerk/nextjs";
 import { Id } from "../../../../../convex/_generated/dataModel";
@@ -227,7 +227,9 @@ export default function SermonViewer() {
   );
 
   // ── Mutations ───────────────────────────────────────────────────────────────
+  const convex = useConvex();
   const addCommentMutation = useMutation(api.sermons.addComment);
+  const generateUploadUrl = useMutation(api.sermons.generateUploadUrl);
   const deleteCommentMutation = useMutation(api.sermons.deleteComment);
   const toggleHighlightMutation = useMutation(api.sermons.toggleHighlight);
   const updateTitleMutation = useMutation(api.sermons.updateTitle);
@@ -1887,15 +1889,34 @@ export default function SermonViewer() {
     try {
       if (!user?.id) throw new Error("Not authenticated");
       setTranscribing(true);
-      // TODO: transcribe-audio-comment edge function stub
-      const commentText = "Audio comment";
-      // TODO: upload audio to Convex storage
+
+      // 1. Get a short-lived upload URL from Convex
+      const uploadUrl = await generateUploadUrl();
+
+      // 2. Upload the audio blob
+      const uploadResponse = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": blob.type || "audio/webm" },
+        body: blob,
+      });
+      if (!uploadResponse.ok) {
+        throw new Error(`Audio upload failed (${uploadResponse.status})`);
+      }
+      const { storageId } = await uploadResponse.json();
+
+      // 3. Get the permanent URL for the stored file
+      const audioUrl = await convex.query(api.sermons.getStorageUrl, { storageId });
+      if (!audioUrl) throw new Error("Could not retrieve audio URL after upload");
+
+      // 4. Save the comment with the audio URL
       await addCommentMutation({
         sermonId,
-        commentText,
+        commentText: "",
         startTimeMs: selectedTimeRange.start,
         endTimeMs: selectedTimeRange.end,
+        audioUrl,
       });
+
       toast.success("Audio comment saved");
       setCommentDialogOpen(false);
       setAudioBlob(null);

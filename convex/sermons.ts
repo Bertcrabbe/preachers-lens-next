@@ -373,6 +373,7 @@ export const addComment = mutation({
     startTimeMs: v.number(),
     endTimeMs: v.number(),
     ruleId: v.optional(v.id("evaluationRules")),
+    audioUrl: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -384,6 +385,7 @@ export const addComment = mutation({
       startTimeMs: args.startTimeMs,
       endTimeMs: args.endTimeMs,
       ruleId: args.ruleId,
+      audioUrl: args.audioUrl,
       createdAt: Date.now(),
     });
   },
