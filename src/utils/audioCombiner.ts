@@ -29,16 +29,23 @@ export async function combineAudioFiles(
     onProgress?.(30, "Downloading commentary audio...");
     
     // Fetch and decode all comment audios
+    // Comments are expected pre-sorted by timestamp (intro at 0 first)
     const commentBuffers: { buffer: AudioBuffer; timestamp: number }[] = [];
     for (let i = 0; i < commentAudios.length; i++) {
+      const isIntro = commentAudios[i].timestamp === 0 && i === 0;
+      const label = isIntro ? "intro comment" : `comment ${i + 1}`;
       const response = await fetch(commentAudios[i].url);
       if (!response.ok) {
-        console.warn(`Skipping comment ${i + 1}: download failed (${response.status})`);
+        const msg = `Failed to download ${label} (HTTP ${response.status})`;
+        if (isIntro) throw new Error(msg + ". Try re-recording the intro comment.");
+        console.warn(`Skipping ${label}: download failed (${response.status})`);
         continue;
       }
       const arrayBuffer = await response.arrayBuffer();
       if (arrayBuffer.byteLength === 0) {
-        console.warn(`Skipping comment ${i + 1}: empty file`);
+        const msg = `${label} audio file is empty`;
+        if (isIntro) throw new Error(msg + ". Try re-recording the intro comment.");
+        console.warn(`Skipping ${label}: empty file`);
         continue;
       }
       try {
@@ -48,7 +55,9 @@ export async function combineAudioFiles(
           timestamp: commentAudios[i].timestamp / 1000
         });
       } catch (e) {
-        console.warn(`Skipping comment ${i + 1}: unable to decode audio`, e);
+        const msg = `Could not decode ${label} audio (unsupported format or corrupt file)`;
+        if (isIntro) throw new Error(msg + ". Try re-recording the intro comment.");
+        console.warn(`Skipping ${label}: unable to decode audio`, e);
       }
       onProgress?.(30 + (30 / commentAudios.length) * (i + 1), `Processing commentary ${i + 1}/${commentAudios.length}...`);
     }

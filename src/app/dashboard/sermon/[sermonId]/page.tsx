@@ -2041,11 +2041,25 @@ export default function SermonViewer() {
     setCombineStatus("Starting...");
     try {
       const audioComments: { url: string; timestamp: number }[] = [];
+      const introComment = comments.find(c => c.audioUrl && c.startTimeMs === 0 && c.endTimeMs === 0);
       for (const comment of comments.filter(c => c.audioUrl)) {
         const resolvedUrl = await resolveCommentAudioUrl(comment);
-        if (resolvedUrl) audioComments.push({ url: resolvedUrl, timestamp: comment.startTimeMs });
+        if (!resolvedUrl) {
+          const isIntro = comment.startTimeMs === 0 && comment.endTimeMs === 0;
+          if (isIntro) {
+            throw new Error("Intro comment audio could not be resolved. Try re-recording it before exporting.");
+          }
+          console.warn("Skipping comment: could not resolve audio URL", comment._id);
+          continue;
+        }
+        audioComments.push({ url: resolvedUrl, timestamp: comment.startTimeMs });
+      }
+      if (introComment && !audioComments.find(c => c.timestamp === 0)) {
+        throw new Error("Intro comment was found but its audio could not be loaded. Try re-recording it.");
       }
       if (audioComments.length === 0) throw new Error("No audio comments found");
+      // Ensure intro (timestamp=0) sorts first
+      audioComments.sort((a, b) => a.timestamp - b.timestamp);
       const combinedBlob = await combineAudioFiles(
         audioUrl,
         audioComments,
