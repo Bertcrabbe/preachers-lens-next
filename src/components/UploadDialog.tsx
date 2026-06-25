@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, Loader2, Link } from "lucide-react";
+import { Upload, Loader2, Link, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -38,19 +38,25 @@ export const UploadDialog = ({
   const [uploading, setUploading] = useState(false);
   const [activeTab, setActiveTab] = useState<"file" | "url">("file");
   const [isDragging, setIsDragging] = useState(false);
+  const [extracting, setExtracting] = useState(false);
 
   const generateUploadUrl = useMutation(api.sermons.generateUploadUrl);
   const createSermon = useMutation(api.sermons.create);
 
+  const isVideoFile = (f: File): boolean => {
+    const videoExts = /\.(mp4|mov|webm|mkv|avi|m4v)$/i;
+    const videoTypes = ["video/mp4", "video/quicktime", "video/webm", "video/x-matroska", "video/x-msvideo", "video/x-m4v"];
+    return videoExts.test(f.name) || videoTypes.includes(f.type) || f.type.startsWith("video/");
+  };
+
   const validateFile = useCallback((selectedFile: File): boolean => {
     const maxSize = 300 * 1024 * 1024; // 300MB
-    const validExt = /\.(mp3|wav|m4a)$/i.test(selectedFile.name);
-    const validType = ["audio/mpeg", "audio/wav", "audio/x-m4a", "audio/mp4"].includes(
-      selectedFile.type
-    );
+    const validAudioExt = /\.(mp3|wav|m4a)$/i.test(selectedFile.name);
+    const validAudioType = ["audio/mpeg", "audio/wav", "audio/x-m4a", "audio/mp4"].includes(selectedFile.type);
+    const validVideo = isVideoFile(selectedFile);
 
-    if (!validExt && !validType) {
-      toast.error("Please upload an MP3, WAV, or M4A file");
+    if (!validAudioExt && !validAudioType && !validVideo) {
+      toast.error("Please upload an audio file (MP3, WAV, M4A) or video file (MP4, MOV, WebM)");
       return false;
     }
     if (selectedFile.size > maxSize) {
@@ -58,6 +64,57 @@ export const UploadDialog = ({
       return false;
     }
     return true;
+  }, []);
+
+  const extractAudioFromVideo = useCallback(async (videoFile: File): Promise<Blob> => {
+    const arrayBuffer = await videoFile.arrayBuffer();
+    const audioCtx = new AudioContext();
+    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+    // Render to offline context as WAV
+    const offlineCtx = new OfflineAudioContext(
+      audioBuffer.numberOfChannels,
+      audioBuffer.length,
+      audioBuffer.sampleRate
+    );
+    const source = offlineCtx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(offlineCtx.destination);
+    source.start();
+    const rendered = await offlineCtx.startRendering();
+    await audioCtx.close();
+
+    // Encode to WAV
+    const numChannels = rendered.numberOfChannels;
+    const sampleRate = rendered.sampleRate;
+    const length = rendered.length;
+    const buffer = new ArrayBuffer(44 + length * numChannels * 2);
+    const view = new DataView(buffer);
+    const writeString = (offset: number, str: string) => {
+      for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+    };
+    writeString(0, "RIFF");
+    view.setUint32(4, 36 + length * numChannels * 2, true);
+    writeString(8, "WAVE");
+    writeString(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true); // PCM
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * numChannels * 2, true);
+    view.setUint16(32, numChannels * 2, true);
+    view.setUint16(34, 16, true);
+    writeString(36, "data");
+    view.setUint32(40, length * numChannels * 2, true);
+    let offset = 44;
+    for (let i = 0; i < length; i++) {
+      for (let ch = 0; ch < numChannels; ch++) {
+        const sample = Math.max(-1, Math.min(1, rendered.getChannelData(ch)[i]));
+        view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+        offset += 2;
+      }
+    }
+    return new Blob([buffer], { type: "audio/wav" });
   }, []);
 
   const handleFileSelect = useCallback(
@@ -104,14 +161,28 @@ export const UploadDialog = ({
     if (!file) return;
     setUploading(true);
     try {
+      // If video, extract audio first
+      let uploadFile: Blob = file;
+      let uploadContentType = file.type || "audio/mpeg";
+      if (isVideoFile(file)) {
+        setExtracting(true);
+        toast.info("Extracting audio from video...");
+        try {
+          uploadFile = await extractAudioFromVideo(file);
+          uploadContentType = "audio/wav";
+        } finally {
+          setExtracting(false);
+        }
+      }
+
       // 1. Get upload URL from Convex storage
       const uploadUrl = await generateUploadUrl();
 
       // 2. Upload file directly to Convex storage
       const res = await fetch(uploadUrl, {
         method: "POST",
-        headers: { "Content-Type": file.type || "audio/mpeg" },
-        body: file,
+        headers: { "Content-Type": uploadContentType },
+        body: uploadFile,
       });
       if (!res.ok) throw new Error(`Storage upload failed: ${res.statusText}`);
       const { storageId } = await res.json();
@@ -206,7 +277,7 @@ export const UploadDialog = ({
             </TabsList>
 
             <TabsContent value="file" className="space-y-2">
-              <Label htmlFor="file">Audio File</Label>
+              <Label htmlFor="file">Audio or Video File</Label>
               <div
                 onDragEnter={handleDragEnter}
                 onDragLeave={handleDragLeave}
@@ -224,7 +295,7 @@ export const UploadDialog = ({
                 <input
                   id="file-input"
                   type="file"
-                  accept=".mp3,.wav,.m4a,audio/*"
+                  accept=".mp3,.wav,.m4a,.mp4,.mov,.webm,.mkv,.m4v,audio/*,video/*"
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     if (f) handleFileSelect(f);
@@ -251,7 +322,7 @@ export const UploadDialog = ({
                         {isDragging ? "Drop your file here" : "Drag & drop or click to upload"}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        MP3, WAV, or M4A (max 300MB)
+                        MP3, WAV, M4A or video (MP4, MOV, WebM) — max 300MB
                       </p>
                     </div>
                   )}
@@ -282,7 +353,7 @@ export const UploadDialog = ({
             {uploading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {activeTab === "url" ? "Downloading..." : "Uploading..."}
+                {activeTab === "url" ? "Downloading..." : extracting ? "Extracting audio..." : "Uploading..."}
               </>
             ) : (
               <>
