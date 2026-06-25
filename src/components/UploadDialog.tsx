@@ -44,8 +44,8 @@ export const UploadDialog = ({
   const createSermon = useMutation(api.sermons.create);
 
   const isVideoFile = (f: File): boolean => {
-    const videoExts = /\.(mp4|mov|webm|mkv|avi|m4v)$/i;
-    const videoTypes = ["video/mp4", "video/quicktime", "video/webm", "video/x-matroska", "video/x-msvideo", "video/x-m4v"];
+    const videoExts = /\.(mp4|webm|mkv|m4v)$/i;
+    const videoTypes = ["video/mp4", "video/webm", "video/x-matroska", "video/x-m4v"];
     return videoExts.test(f.name) || videoTypes.includes(f.type) || f.type.startsWith("video/");
   };
 
@@ -295,7 +295,7 @@ export const UploadDialog = ({
                 <input
                   id="file-input"
                   type="file"
-                  accept=".mp3,.wav,.m4a,.mp4,.mov,.webm,.mkv,.m4v,audio/*,video/*"
+                  accept=".mp3,.wav,.m4a,.mp4,.webm,.mkv,.m4v,audio/*"
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     if (f) handleFileSelect(f);
@@ -322,7 +322,7 @@ export const UploadDialog = ({
                         {isDragging ? "Drop your file here" : "Drag & drop or click to upload"}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        MP3, WAV, M4A or video (MP4, MOV, WebM) — max 300MB
+                        MP3, WAV, M4A or video (MP4, WebM, MKV) — max 300MB
                       </p>
                     </div>
                   )}
