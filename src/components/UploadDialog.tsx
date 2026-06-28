@@ -260,9 +260,12 @@ export const UploadDialog = ({
   const isYoutubeUrl = (u: string) =>
     /(?:youtube\.com\/watch|youtu\.be\/)/i.test(u);
 
+  const isSubsplashUrl = (u: string) =>
+    /(?:subspla\.sh\/[a-z0-9]+|\/media\/[a-z0-9]{5,10}(?:\/|$)|subsplash\.com\/)/i.test(u);
+
   const handleUpload = () => {
     if (activeTab === "file") handleFileUpload();
-    else if (isYoutubeUrl(url)) handleYoutubeUpload();
+    else if (isYoutubeUrl(url) || isSubsplashUrl(url)) handleYoutubeUpload();
     else handleUrlUpload();
   };
 
@@ -371,7 +374,9 @@ export const UploadDialog = ({
               <p className="text-sm text-muted-foreground">
                 {url && /(?:youtube\.com\/watch|youtu\.be\/)/i.test(url)
                   ? "✓ YouTube detected — audio will be extracted automatically"
-                  : "Paste a YouTube link or direct audio URL"}
+                  : url && /(?:subspla\.sh\/[a-z0-9]+|\/media\/[a-z0-9]{5,10}(?:\/|$)|subsplash\.com\/)/i.test(url)
+                  ? "✓ Subsplash detected — audio will be extracted automatically"
+                  : "Paste a YouTube link, Subsplash link, or direct audio URL"}
               </p>
             </TabsContent>
           </Tabs>
@@ -384,7 +389,7 @@ export const UploadDialog = ({
             {uploading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {activeTab === "url" && /(?:youtube\.com\/watch|youtu\.be\/)/i.test(url) ? "Extracting from YouTube..." : activeTab === "url" ? "Downloading..." : extracting ? "Extracting audio..." : "Uploading..."}
+                {activeTab === "url" && (/(?:youtube\.com\/watch|youtu\.be\/)/i.test(url) || /(?:subspla\.sh\/[a-z0-9]+|\/media\/[a-z0-9]{5,10}(?:\/|$)|subsplash\.com\/)/i.test(url)) ? "Extracting audio..." : activeTab === "url" ? "Downloading..." : extracting ? "Extracting audio..." : "Uploading..."}
               </>
             ) : (
               <>

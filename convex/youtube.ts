@@ -3,12 +3,12 @@ import { action } from "./_generated/server";
 import { api } from "./_generated/api";
 
 /**
- * Extracts audio from a YouTube URL via the local yt-audio-service tunnel,
+ * Extracts audio from a YouTube or Subsplash URL via the local yt-audio-service tunnel,
  * uploads the resulting MP3 to Convex storage, and creates a sermon record.
  */
 export const extractAndCreate = action({
   args: {
-    youtubeUrl: v.string(),
+    youtubeUrl: v.string(), // accepts YouTube or Subsplash URLs
     title: v.optional(v.string()),
     communicatorId: v.optional(v.id("communicators")),
   },
