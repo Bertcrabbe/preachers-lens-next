@@ -367,7 +367,7 @@ export const UploadDialog = ({
               <Input
                 id="audio-url"
                 type="url"
-                placeholder="YouTube link or direct audio URL (MP3, WAV, M4A)"
+                placeholder="YouTube link, Subsplash link, or direct audio URL (MP3, WAV, M4A)"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
               />
