@@ -376,7 +376,7 @@ export const UploadDialog = ({
                   ? "✓ YouTube detected — audio will be extracted automatically"
                   : url && /(?:subspla\.sh\/[a-z0-9]+|\/media\/[a-z0-9]{5,10}(?:\/|$)|subsplash\.com\/)/i.test(url)
                   ? "✓ Subsplash detected — audio will be extracted automatically"
-                  : "Paste a YouTube link, Subsplash link, or direct audio URL"}
+                  : "Paste a link and we'll look for audio."}
               </p>
             </TabsContent>
           </Tabs>
