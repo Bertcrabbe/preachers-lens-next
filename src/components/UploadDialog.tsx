@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, Loader2, Link, PlayCircle } from "lucide-react";
+import { Upload, Loader2, Link } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -36,10 +36,10 @@ export const UploadDialog = ({
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
   const [uploading, setUploading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"file" | "url" | "youtube">("file");
+  const [activeTab, setActiveTab] = useState<"file" | "url">("file");
   const [isDragging, setIsDragging] = useState(false);
   const [extracting, setExtracting] = useState(false);
-  const [youtubeUrl, setYoutubeUrl] = useState("");
+
 
   const generateUploadUrl = useMutation(api.sermons.generateUploadUrl);
   const createSermon = useMutation(api.sermons.create);
@@ -234,20 +234,21 @@ export const UploadDialog = ({
     }
   };
 
-  const handleYoutubeUpload = async () => {
-    if (!youtubeUrl.trim()) return;
+  const handleYoutubeUpload = async (ytUrl?: string) => {
+    const target = (ytUrl ?? url).trim();
+    if (!target) return;
     setUploading(true);
     try {
       toast.info("Extracting audio from YouTube — this may take a minute...");
       await extractAndCreate({
-        youtubeUrl: youtubeUrl.trim(),
+        youtubeUrl: target,
         title: title.trim() || undefined,
         communicatorId,
       });
       toast.success("Extracted — transcription starting");
       onUploadComplete();
       onOpenChange(false);
-      setYoutubeUrl("");
+      setUrl("");
       setTitle("");
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "YouTube extraction failed");
@@ -256,16 +257,16 @@ export const UploadDialog = ({
     }
   };
 
+  const isYoutubeUrl = (u: string) =>
+    /(?:youtube\.com\/watch|youtu\.be\/)/i.test(u);
+
   const handleUpload = () => {
     if (activeTab === "file") handleFileUpload();
-    else if (activeTab === "youtube") handleYoutubeUpload();
+    else if (isYoutubeUrl(url)) handleYoutubeUpload();
     else handleUrlUpload();
   };
 
-  const canUpload =
-    activeTab === "file" ? !!file :
-    activeTab === "youtube" ? !!youtubeUrl.trim() :
-    !!url.trim();
+  const canUpload = activeTab === "file" ? !!file : !!url.trim();
 
   return (
     <Dialog
@@ -292,19 +293,15 @@ export const UploadDialog = ({
             />
           </div>
 
-          <Tabs value={activeTab} onValueChange={(v: string) => setActiveTab(v as "file" | "url" | "youtube")}>
-            <TabsList className="grid w-full grid-cols-3">
+          <Tabs value={activeTab} onValueChange={(v: string) => setActiveTab(v as "file" | "url")}>
+            <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="file">
                 <Upload className="mr-2 h-4 w-4" />
-                File
-              </TabsTrigger>
-              <TabsTrigger value="youtube">
-                <PlayCircle className="mr-2 h-4 w-4" />
-                YouTube
+                File Upload
               </TabsTrigger>
               <TabsTrigger value="url">
                 <Link className="mr-2 h-4 w-4" />
-                URL
+                From URL
               </TabsTrigger>
             </TabsList>
 
@@ -362,31 +359,19 @@ export const UploadDialog = ({
               </div>
             </TabsContent>
 
-            <TabsContent value="youtube" className="space-y-2">
-              <Label htmlFor="youtube-url">YouTube URL</Label>
-              <Input
-                id="youtube-url"
-                type="url"
-                placeholder="https://youtube.com/watch?v=..."
-                value={youtubeUrl}
-                onChange={(e) => setYoutubeUrl(e.target.value)}
-              />
-              <p className="text-sm text-muted-foreground">
-                Paste any YouTube video link — audio will be extracted automatically
-              </p>
-            </TabsContent>
-
             <TabsContent value="url" className="space-y-2">
-              <Label htmlFor="audio-url">Audio URL</Label>
+              <Label htmlFor="audio-url">URL</Label>
               <Input
                 id="audio-url"
                 type="url"
-                placeholder="https://example.com/sermon.mp3"
+                placeholder="YouTube link or direct audio URL (MP3, WAV, M4A)"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
               />
               <p className="text-sm text-muted-foreground">
-                Paste a direct audio link (MP3, WAV, M4A)
+                {url && /(?:youtube\.com\/watch|youtu\.be\/)/i.test(url)
+                  ? "✓ YouTube detected — audio will be extracted automatically"
+                  : "Paste a YouTube link or direct audio URL"}
               </p>
             </TabsContent>
           </Tabs>
@@ -399,7 +384,7 @@ export const UploadDialog = ({
             {uploading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {activeTab === "youtube" ? "Extracting from YouTube..." : activeTab === "url" ? "Downloading..." : extracting ? "Extracting audio..." : "Uploading..."}
+                {activeTab === "url" && /(?:youtube\.com\/watch|youtu\.be\/)/i.test(url) ? "Extracting from YouTube..." : activeTab === "url" ? "Downloading..." : extracting ? "Extracting audio..." : "Uploading..."}
               </>
             ) : (
               <>
