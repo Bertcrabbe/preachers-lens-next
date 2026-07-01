@@ -67,7 +67,7 @@ import { toPng } from "html-to-image";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
-import { AnimatedCounter } from "@/components/AnimatedCounter";
+
 import Sparkline from "@/components/Sparkline";
 import {
   DropdownMenu,
@@ -3597,7 +3597,7 @@ export default function SermonViewer() {
             </div>
             <div className="flex flex-col items-center text-center mb-3">
               <div className="text-4xl font-bold text-amber-600">
-                <AnimatedCounter value={getEngagementScore().total} /><span className="text-lg text-muted-foreground">/10</span>
+                <span>{getEngagementScore().total}</span><span className="text-lg text-muted-foreground">/10</span>
               </div>
               <div className="text-sm text-muted-foreground mt-1">
                 Overall Engagement
@@ -3735,7 +3735,7 @@ export default function SermonViewer() {
               </div>
               <div className="flex flex-col items-center text-center">
                 <div className="text-4xl font-bold text-gradient-primary">
-                  <AnimatedCounter value={Math.round(getAverageSpeechRate())} />
+                  <span>{Math.round(getAverageSpeechRate())}</span>
                 </div>
                 <div className="text-sm text-muted-foreground mt-1">
                   Average WPM
@@ -3779,7 +3779,7 @@ export default function SermonViewer() {
               </div>
               <div className="flex flex-col items-center text-center">
                 <div className="text-3xl font-bold text-rose-600">
-                  <AnimatedCounter value={countSustainedDeviations(25).total} />
+                  <span>{countSustainedDeviations(25).total}</span>
                 </div>
                 <div className="text-sm text-muted-foreground mt-1">
                   Sustained Deviations
@@ -3846,7 +3846,7 @@ export default function SermonViewer() {
               </div>
               <div className="flex flex-col items-center text-center">
                 <div className="text-3xl font-bold text-amber-600">
-                  <AnimatedCounter value={countSustainedVolumeDeviations(25).total} />
+                  <span>{countSustainedVolumeDeviations(25).total}</span>
                 </div>
                 <div className="text-sm text-muted-foreground mt-1">
                   Sustained Deviations
@@ -3924,7 +3924,7 @@ export default function SermonViewer() {
               </div>
               <div className="flex flex-col items-center text-center mb-4">
                 <div className="text-3xl font-bold text-orange-600">
-                  <AnimatedCounter value={countVerbalPauses()} />
+                  <span>{countVerbalPauses()}</span>
                 </div>
                 <div className="text-sm text-muted-foreground mt-1">
                   Filler Words Used
@@ -4001,7 +4001,7 @@ export default function SermonViewer() {
               </div>
               <div className="flex flex-col items-center text-center mb-3">
                 <div className="text-3xl font-bold text-blue-600">
-                  <AnimatedCounter value={countSilentPauses()} />
+                  <span>{countSilentPauses()}</span>
                 </div>
                 <div className="text-sm text-muted-foreground mt-1">
                   Pauses ≥ 3 seconds
@@ -4032,7 +4032,7 @@ export default function SermonViewer() {
                   {loadingScriptures ? (
                     <Loader2 className="h-8 w-8 animate-spin" />
                   ) : (
-                    <AnimatedCounter value={scriptureRefs.length} />
+                    <span>{scriptureRefs.length}</span>
                   )}
                 </div>
                 <div className="text-sm text-muted-foreground mt-1">
@@ -4083,7 +4083,7 @@ export default function SermonViewer() {
                   {loadingConfusing ? (
                     <Loader2 className="h-8 w-8 animate-spin" />
                   ) : (
-                    <AnimatedCounter value={confusingPhrases.length} />
+                    <span>{confusingPhrases.length}</span>
                   )}
                 </div>
                 <div className="text-sm text-muted-foreground mt-1">
@@ -4150,7 +4150,7 @@ export default function SermonViewer() {
               </div>
               <div className="flex flex-col items-center text-center mb-4">
                 <div className="text-3xl font-bold text-teal-600">
-                  <AnimatedCounter value={getRepeatedPhrases(3).length} />
+                  <span>{getRepeatedPhrases(3).length}</span>
                 </div>
                 <div className="text-sm text-muted-foreground mt-1">
                   Phrases Used 3+ Times
@@ -4189,12 +4189,12 @@ export default function SermonViewer() {
                   {loadingQuestions ? (
                     <Loader2 className="h-8 w-8 animate-spin" />
                   ) : (
-                    <AnimatedCounter value={sentences.filter((s, sIdx) => {
+                    <span>{sentences.filter((s, sIdx) => {
                       if (!s.sentenceText.trim().endsWith('?')) return false;
                       if (isSentenceInScripture(s.sentenceText, sIdx)) return false;
                       if (congregationQuestionIndices && !congregationQuestionIndices.has(sIdx)) return false;
                       return true;
-                    }).length} />
+                    }).length}</span>
                   )}
                 </div>
                 <div className="text-sm text-muted-foreground mt-1">
@@ -4256,7 +4256,7 @@ export default function SermonViewer() {
                   {loadingMissedQuestions ? (
                     <Loader2 className="h-8 w-8 animate-spin" />
                   ) : (
-                    <AnimatedCounter value={missedQuestionsData?.opportunities.length ?? 0} />
+                    <span>{missedQuestionsData?.opportunities.length ?? 0}</span>
                   )}
                 </div>
                 <div className="text-sm text-muted-foreground mt-1">
