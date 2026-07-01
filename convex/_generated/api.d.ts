@@ -14,6 +14,7 @@ import type * as evaluationRules from "../evaluationRules.js";
 import type * as migration from "../migration.js";
 import type * as sermons from "../sermons.js";
 import type * as transcription from "../transcription.js";
+import type * as youtube from "../youtube.js";
 
 import type {
   ApiFromModules,
@@ -28,6 +29,7 @@ declare const fullApi: ApiFromModules<{
   migration: typeof migration;
   sermons: typeof sermons;
   transcription: typeof transcription;
+  youtube: typeof youtube;
 }>;
 
 /**
